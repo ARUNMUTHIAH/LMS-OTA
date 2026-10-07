@@ -3,14 +3,23 @@
 // can be exercised without Electron (see test/smoke.js).
 
 const fs = require('fs');
+const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
 const initSqlJs = require('sql.js');
 const { today, isValidDate, addDays, display } = require('./dates');
 const { checks } = require('../renderer/rules');
 
+// Databases created by releases before 1.1 were seeded with a built-in "admin" account; the
+// Settings warning about changing its password only applies to that account.
 const DEFAULT_USERNAME = 'admin';
-const DEFAULT_PASSWORD = 'admin123';
+
+// Columns of the issues table, listed explicitly so callers get exactly these fields.
+const ISSUE_COLS = `id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+  return_date, return_user, return_remarks, returned_late, issued_at, returned_at`;
+
+// Columns that may be listed in the CAT / LOC / Rack filter menus (see shelfValues).
+const SHELF_COLS = ['category', 'location', 'rack'];
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS books (
@@ -81,9 +90,10 @@ function hashPassword(password, salt) {
 class LibraryDB {
   static async open(filePath) {
     const wasmPath = require.resolve('sql.js/dist/sql-wasm.wasm');
-    const SQL = await initSqlJs({ wasmBinary: fs.readFileSync(wasmPath) });
+    const SQL = await initSqlJs({ wasmBinary: await fsp.readFile(wasmPath) });
     const inst = new LibraryDB(SQL, filePath);
-    inst._load();
+    const bytes = filePath ? await fsp.readFile(filePath).catch((e) => (e.code === 'ENOENT' ? null : Promise.reject(e))) : null;
+    inst._load(bytes);
     return inst;
   }
 
@@ -93,12 +103,8 @@ class LibraryDB {
     this.db = null;
   }
 
-  _load() {
-    if (this.filePath && fs.existsSync(this.filePath)) {
-      this.db = new this.SQL.Database(fs.readFileSync(this.filePath));
-    } else {
-      this.db = new this.SQL.Database();
-    }
+  _load(bytes) {
+    this.db = bytes ? new this.SQL.Database(bytes) : new this.SQL.Database();
     this.db.run(SCHEMA);
     this._migrate();
     this._seed();
@@ -115,20 +121,15 @@ class LibraryDB {
     if (!userCols.includes('active')) this.db.run('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
   }
 
+  // No account is created here: on a new database the first user is set up from the
+  // sign-in screen (see needsSetup / createFirstUser), so no password ships with the app.
   _seed() {
-    if (!this.get('SELECT id FROM users LIMIT 1')) {
-      const salt = crypto.randomBytes(16).toString('hex');
-      this.db.run('INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)', [
-        DEFAULT_USERNAME,
-        hashPassword(DEFAULT_PASSWORD, salt),
-        salt,
-      ]);
-      this._setSetting('default_credentials', '1');
-    }
     if (this.getSetting('default_duration') == null) this._setSetting('default_duration', '14');
   }
 
   // Writes the database atomically: temp file then rename, so a crash never leaves a half-written file.
+  // Kept synchronous on purpose: every change is on disk before the next one can start, and this
+  // is a single-user desktop app, so there are no other requests to hold up.
   _save() {
     if (!this.filePath) return;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
@@ -187,7 +188,7 @@ class LibraryDB {
     const user = this.get('SELECT username FROM users ORDER BY id LIMIT 1');
     return {
       defaultDuration: Number(this.getSetting('default_duration')) || 14,
-      username: user ? user.username : DEFAULT_USERNAME,
+      username: user ? user.username : '',
       defaultCredentials: this.getSetting('default_credentials') === '1',
     };
   }
@@ -200,8 +201,21 @@ class LibraryDB {
   }
 
   // ---------- Authentication ----------
+  // True until the first user account has been created.
+  needsSetup() {
+    return !this.get('SELECT id FROM users LIMIT 1');
+  }
+
+  // Creates the first account on a new database. Refused once any account exists.
+  createFirstUser({ username, password } = {}) {
+    if (!this.needsSetup()) throw new UserError('The library is already set up. Please sign in.');
+    const user = this.createUser({ username, password, active: true });
+    this._transaction(() => this._setSetting('default_credentials', '0'));
+    return user;
+  }
+
   verifyLogin(username, password) {
-    const user = this.get('SELECT * FROM users WHERE username = ?', [clean(username)]);
+    const user = this.get('SELECT id, username, password_hash, salt, active FROM users WHERE username = ?', [clean(username)]);
     if (!user || typeof password !== 'string') return null;
     const a = Buffer.from(hashPassword(password, user.salt), 'hex');
     const b = Buffer.from(user.password_hash, 'hex');
@@ -210,7 +224,7 @@ class LibraryDB {
   }
 
   changeCredentials(userId, { currentPassword, newUsername, newPassword }) {
-    const user = this.get('SELECT * FROM users WHERE id = ?', [userId]);
+    const user = this.get('SELECT id, username, password_hash, salt FROM users WHERE id = ?', [userId]);
     if (!user) throw new UserError('User not found.');
     if (!this.verifyLogin(user.username, currentPassword)) throw new UserError('Current password is incorrect.');
     const username = newUsername == null || String(newUsername).trim() === '' ? user.username : String(newUsername).trim();
@@ -255,7 +269,7 @@ class LibraryDB {
 
   // Edits a user's login. A blank password keeps the existing one; status is unchanged unless given.
   updateUser(id, { username, password, active } = {}, currentUserId = null) {
-    const user = this.get('SELECT * FROM users WHERE id = ?', [Number(id)]);
+    const user = this.get('SELECT id, username, password_hash, salt, active FROM users WHERE id = ?', [Number(id)]);
     if (!user) throw new UserError('This user no longer exists.');
     const isActive = active == null ? user.active === 1 : active !== false;
     if (!isActive && user.id === currentUserId) throw new UserError('You cannot make the account you are signed in with inactive.');
@@ -505,7 +519,7 @@ class LibraryDB {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [book.id, book.book_no, book.name, user, issueDate, days, dueDate, clean(remarks)]
       );
-      return this.get('SELECT * FROM issues WHERE id = ?', [this._lastId()]);
+      return this.get(`SELECT ${ISSUE_COLS} FROM issues WHERE id = ?`, [this._lastId()]);
     });
   }
 
@@ -523,14 +537,16 @@ class LibraryDB {
            returned_at = datetime('now','localtime') WHERE id = ?`,
         [returnDate, user, clean(remarks), late, book.issue_id]
       );
-      return this.get('SELECT * FROM issues WHERE id = ?', [book.issue_id]);
+      return this.get(`SELECT ${ISSUE_COLS} FROM issues WHERE id = ?`, [book.issue_id]);
     });
   }
 
   // Values used in the books, for the CAT / LOC / Rack filter menus.
   shelfValues() {
-    const distinct = (col) =>
-      this.all(`SELECT DISTINCT ${col} AS v FROM books WHERE ${col} <> '' ORDER BY ${col} COLLATE NOCASE`).map((r) => r.v);
+    const distinct = (col) => {
+      if (!SHELF_COLS.includes(col)) throw new Error('Unknown shelf column ' + col);
+      return this.all(`SELECT DISTINCT ${col} AS v FROM books WHERE ${col} <> '' ORDER BY ${col} COLLATE NOCASE`).map((r) => r.v);
+    };
     return { categories: distinct('category'), locations: distinct('location'), racks: distinct('rack') };
   }
 
@@ -543,7 +559,7 @@ class LibraryDB {
 
   recentActivity(limit = 12) {
     return this.all(
-      `SELECT * FROM (
+      `SELECT action, book_no, book_name, user_name, at, due_date, late FROM (
          SELECT 'Issued' AS action, book_no, book_name, issue_user AS user_name, issued_at AS at, due_date, 0 AS late FROM issues
          UNION ALL
          SELECT CASE WHEN returned_late = 1 THEN 'Returned Late' ELSE 'Returned' END, book_no, book_name, return_user, returned_at, due_date, returned_late
@@ -556,9 +572,9 @@ class LibraryDB {
   todaysActivity(kind) {
     const t = today();
     if (kind === 'issue') {
-      return this.all('SELECT * FROM issues WHERE issue_date = ? ORDER BY id DESC', [t]);
+      return this.all(`SELECT ${ISSUE_COLS} FROM issues WHERE issue_date = ? ORDER BY id DESC`, [t]);
     }
-    return this.all('SELECT * FROM issues WHERE return_date = ? ORDER BY returned_at DESC', [t]);
+    return this.all(`SELECT ${ISSUE_COLS} FROM issues WHERE return_date = ? ORDER BY returned_at DESC`, [t]);
   }
 
   // ---------- Dashboard ----------
@@ -674,7 +690,7 @@ class LibraryDB {
     this._textFilters(where, params, { userName, bookNo, q });
     const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
     return this.all(
-      `SELECT *, CASE
+      `SELECT ${ISSUE_COLS}, CASE
                    WHEN return_date IS NULL AND due_date < ? THEN 'Overdue'
                    WHEN return_date IS NULL THEN 'Issued'
                    WHEN returned_late = 1 THEN 'Returned Late'
@@ -713,4 +729,4 @@ class LibraryDB {
   }
 }
 
-module.exports = { LibraryDB, UserError, DEFAULT_USERNAME, DEFAULT_PASSWORD };
+module.exports = { LibraryDB, UserError, DEFAULT_USERNAME };

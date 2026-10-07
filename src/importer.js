@@ -200,6 +200,8 @@ async function writeErrorReport(filePath, rows, errors) {
 
 // "<file>_not_imported_<date>.xlsx" in the given folder, numbered if one already exists.
 function rejectsPath(dir, sourceName, date) {
+  // Anchored, with no nested repetition, so it cannot backtrack badly.
+  // eslint-disable-next-line security/detect-unsafe-regex
   const base = path.basename(sourceName, path.extname(sourceName)).replace(/_not_imported_\d{4}-\d{2}-\d{2}(\s\(\d+\))?$/, '');
   let p = path.join(dir, `${base}_not_imported_${date}.xlsx`);
   for (let i = 2; fs.existsSync(p); i++) p = path.join(dir, `${base}_not_imported_${date} (${i}).xlsx`);

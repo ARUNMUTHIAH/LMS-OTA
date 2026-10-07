@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('api', {
   login: call('auth:login'),
   logout: call('auth:logout'),
   loginHint: call('auth:loginHint'),
+  setupNeeded: call('auth:setupNeeded'),
+  setup: call('auth:setup'),
   changeCredentials: call('auth:changeCredentials'),
 
   listUsers: call('users:list'),

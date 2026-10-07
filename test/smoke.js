@@ -1,6 +1,7 @@
 // End-to-end check of the business rules in the requirement document, run against a temp database.
 // Usage: npm test
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -17,8 +18,18 @@ const expectUserError = (fn, pattern) =>
   let db = await LibraryDB.open(file);
   const t = today();
 
+  // First-run setup: no built-in account; the first user is created by the librarian.
+  const firstPw = crypto.randomBytes(9).toString('base64');
+  assert.ok(db.needsSetup(), 'new database has no accounts');
+  assert.strictEqual(db.verifyLogin('admin', 'anything'), null, 'no factory default login');
+  expectUserError(() => db.createFirstUser({ username: 'admin', password: '' }), /Password is required/);
+  db.createFirstUser({ username: 'admin', password: firstPw });
+  assert.ok(!db.needsSetup());
+  expectUserError(() => db.createFirstUser({ username: 'other', password: firstPw }), /already set up/);
+  assert.strictEqual(db.getSettings().defaultCredentials, false);
+
   // Login
-  assert.ok(db.verifyLogin('admin', 'admin123'), 'default login works');
+  assert.ok(db.verifyLogin('admin', firstPw), 'first account can sign in');
   assert.strictEqual(db.verifyLogin('admin', 'wrong'), null);
   assert.strictEqual(db.getSettings().defaultDuration, 14);
 
@@ -133,10 +144,10 @@ const expectUserError = (fn, pattern) =>
 
   // Credentials
   expectUserError(() => db.changeCredentials(1, { currentPassword: 'bad', newPassword: 'secret1' }), /incorrect/);
-  expectUserError(() => db.changeCredentials(1, { currentPassword: 'admin123', newUsername: 'my name' }), /no spaces/);
-  expectUserError(() => db.changeCredentials(1, { currentPassword: 'admin123', newPassword: '123' }), /at least 4/);
+  expectUserError(() => db.changeCredentials(1, { currentPassword: firstPw, newUsername: 'my name' }), /no spaces/);
+  expectUserError(() => db.changeCredentials(1, { currentPassword: firstPw, newPassword: '123' }), /at least 4/);
   expectUserError(() => db.setDefaultDuration(0), /between 1 and 365/);
-  db.changeCredentials(1, { currentPassword: 'admin123', newUsername: 'librarian', newPassword: 'secret1' });
+  db.changeCredentials(1, { currentPassword: firstPw, newUsername: 'librarian', newPassword: 'secret1' });
   assert.ok(db.verifyLogin('librarian', 'secret1'));
   assert.strictEqual(db.getSettings().defaultCredentials, false);
   db.setDefaultDuration(21);

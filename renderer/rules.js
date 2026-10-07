@@ -30,7 +30,7 @@
       const v = clean(raw);
       if (!v) return 'Accession Number is required.';
       if (v.length > LIMITS.bookNo) return tooLong(v, LIMITS.bookNo, 'Accession Number');
-      if (!/^[A-Za-z0-9][A-Za-z0-9\-\/_.]*$/.test(v)) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(v)) {
         return 'Accession Number can contain only letters, numbers and - / _ . (no spaces).';
       }
       return '';
@@ -71,7 +71,7 @@
       if (v.length < 2) return `${label} must be at least 2 characters.`;
       if (v.length > LIMITS.person) return tooLong(v, LIMITS.person, label);
       if (!hasLetter(v)) return `${label} must contain letters.`;
-      if (!/^[\p{L}\p{M}0-9 .'()\/-]+$/u.test(v)) {
+      if (!/^[\p{L}\p{M}0-9 .'()/-]+$/u.test(v)) {
         return `${label} can contain only letters, numbers, spaces and . ' - ( ) /`;
       }
       return '';

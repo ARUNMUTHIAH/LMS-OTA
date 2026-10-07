@@ -1,8 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
-const fs = require('fs');
+const fsp = require('fs/promises');
 const os = require('os');
-const { LibraryDB, UserError } = require('./src/database');
+const { LibraryDB, UserError, DEFAULT_USERNAME } = require('./src/database');
 const reports = require('./src/reports');
 const importer = require('./src/importer');
 const { today } = require('./src/dates');
@@ -71,25 +71,27 @@ function handle(channel, fn, { auth = true } = {}) {
 // Settings as seen by the signed-in user (their own username, not the first account's).
 function settingsForSession() {
   const s = db.getSettings();
-  // The default-password warning only concerns the built-in "admin" account.
-  return { ...s, username: session.username, defaultCredentials: s.defaultCredentials && session.username.toLowerCase() === 'admin' };
+  // The default-password warning only concerns the built-in "admin" account of older databases.
+  return { ...s, username: session.username, defaultCredentials: s.defaultCredentials && session.username.toLowerCase() === DEFAULT_USERNAME };
 }
 
+const exists = (p) => fsp.access(p).then(() => true, () => false);
+
 function safeFileName(s) {
-  return s.replace(/[^\w\-]+/g, '_');
+  return s.replace(/[^\w-]+/g, '_');
 }
 
 async function renderReportWindow(type, filters) {
   const html = reports.toHtml(db, type, filters);
   const tmp = path.join(os.tmpdir(), `ota-library-report-${Date.now()}.html`);
-  fs.writeFileSync(tmp, html, 'utf8');
+  await fsp.writeFile(tmp, html, 'utf8');
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
   await win.loadFile(tmp);
   return {
     win,
     cleanup() {
       if (!win.isDestroyed()) win.close();
-      fs.rm(tmp, { force: true }, () => {});
+      fsp.rm(tmp, { force: true }).catch(() => {});
     },
   };
 }
@@ -112,6 +114,17 @@ function registerIpc() {
     return true;
   });
   handle('auth:loginHint', () => db.getSettings().defaultCredentials, { auth: false });
+  // First start on a new database: there are no accounts until the librarian creates one.
+  handle('auth:setupNeeded', () => db.needsSetup(), { auth: false });
+  handle(
+    'auth:setup',
+    (payload) => {
+      const user = db.createFirstUser(payload || {});
+      session = user;
+      return { user, settings: settingsForSession() };
+    },
+    { auth: false }
+  );
   handle('auth:changeCredentials', (payload) => {
     session = db.changeCredentials(session.id, payload);
     return settingsForSession();
@@ -267,7 +280,7 @@ function registerIpc() {
         margins: { top: 0.5, bottom: 0.6, left: 0.45, right: 0.45 },
       });
       try {
-        fs.writeFileSync(filePath, pdf);
+        await fsp.writeFile(filePath, pdf);
       } catch (e) {
         if (e.code === 'EBUSY' || e.code === 'EPERM') {
           throw new UserError('Could not save the PDF. Please close it in your PDF viewer and try again.');
@@ -280,8 +293,8 @@ function registerIpc() {
     return filePath;
   });
 
-  handle('shell:open', (filePath) => {
-    if (typeof filePath !== 'string' || !fs.existsSync(filePath)) throw new UserError('File not found.');
+  handle('shell:open', async (filePath) => {
+    if (typeof filePath !== 'string' || !(await exists(filePath))) throw new UserError('File not found.');
     return shell.openPath(filePath);
   });
   // Fixed address only: the renderer cannot pass a URL.
@@ -299,7 +312,7 @@ function registerIpc() {
       filters: [{ name: 'Library Backup', extensions: ['db'] }],
     });
     if (canceled || !filePath) return null;
-    fs.writeFileSync(filePath, db.exportBytes());
+    await fsp.writeFile(filePath, db.exportBytes());
     return filePath;
   });
 
@@ -312,8 +325,8 @@ function registerIpc() {
     if (canceled || !filePaths.length) return null;
     // Keep a safety copy of the current data before replacing it.
     const safety = path.join(app.getPath('userData'), `before-restore-${Date.now()}.db`);
-    fs.writeFileSync(safety, db.exportBytes());
-    db.restoreFrom(fs.readFileSync(filePaths[0]));
+    await fsp.writeFile(safety, db.exportBytes());
+    db.restoreFrom(await fsp.readFile(filePaths[0]));
     session = null; // credentials may differ in the restored data
     return filePaths[0];
   });
@@ -329,13 +342,13 @@ function registerIpc() {
 // left untouched as a fallback).
 const PREVIOUS_DATA_FOLDERS = ['Technical Library CGAS Chennai', 'Dornier Aircraft Publication Library', 'OTA Campus Library'];
 
-function carryOverOldData(dbFile) {
-  if (fs.existsSync(dbFile)) return;
+async function carryOverOldData(dbFile) {
+  if (await exists(dbFile)) return;
   for (const folder of PREVIOUS_DATA_FOLDERS) {
     const oldFile = path.join(app.getPath('appData'), folder, 'library.db');
-    if (!fs.existsSync(oldFile)) continue;
-    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
-    fs.copyFileSync(oldFile, dbFile);
+    if (!(await exists(oldFile))) continue;
+    await fsp.mkdir(path.dirname(dbFile), { recursive: true });
+    await fsp.copyFile(oldFile, dbFile);
     return;
   }
 }
@@ -344,7 +357,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   const dbFile = path.join(app.getPath('userData'), 'library.db');
   try {
-    carryOverOldData(dbFile);
+    await carryOverOldData(dbFile);
     db = await LibraryDB.open(dbFile);
   } catch (e) {
     dialog.showErrorBox(APP_TITLE, 'Could not open the library database.\n\n' + e.message);

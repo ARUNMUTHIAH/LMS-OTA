@@ -444,10 +444,50 @@ async function showLogin() {
   if ($('#login-password').hidePassword) $('#login-password').hidePassword();
   $('#login-error').hidden = true;
   clearFieldErrors($('#login-form'));
+  // A new database has no accounts yet: ask for the first one instead of a sign-in.
+  const setup = await window.api.setupNeeded();
+  const needsSetup = !!(setup.ok && setup.data);
+  $('#login-form').hidden = needsSetup;
+  $('#setup-form').hidden = !needsSetup;
+  if (needsSetup) {
+    $('#setup-form').reset();
+    $('#setup-error').hidden = true;
+    clearFieldErrors($('#setup-form'));
+    setTimeout(() => $('#setup-username').focus(), 50);
+    return;
+  }
   const hint = await window.api.loginHint();
   $('#login-hint').hidden = !(hint.ok && hint.data);
   setTimeout(() => $('#login-username').focus(), 50);
 }
+
+$('#setup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#setup-error').hidden = true;
+  const password = $('#setup-password');
+  const valid = validateFields([
+    [$('#setup-username'), RULES.username],
+    [password, (v) => (v ? RULES.newPassword(v) : 'Password is required.')],
+    [$('#setup-confirm'), (v) => (v === password.value ? '' : 'The passwords do not match.')],
+  ]);
+  if (!valid) return;
+  const btn = $('#setup-form button[type=submit]');
+  btn.disabled = true;
+  try {
+    const res = await window.api.setup({ username: $('#setup-username').value.trim(), password: password.value });
+    if (!res.ok) {
+      $('#setup-error').textContent = res.error;
+      $('#setup-error').hidden = false;
+      return;
+    }
+    state.user = res.data.user;
+    state.settings = res.data.settings;
+    enterApp();
+    toast(`Account “${res.data.user.username}” created. Welcome!`);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -931,18 +971,6 @@ async function deleteBook(book) {
 }
 
 /* ================= Circulation ================= */
-function bookCard(b) {
-  return `<div class="book-card">
-    <div class="book-card-head"><div><div class="eyebrow">Book details</div><h3>${esc(b.name)}</h3></div>${badge(b.status)}</div>
-    <dl class="details">
-      <dt>Accession No</dt><dd class="mono">${esc(b.book_no)}</dd>
-      <dt>LF</dt><dd class="mono">${esc(b.lf) || '—'}</dd>
-      <dt>CAT</dt><dd>${esc(b.category) || '—'}</dd>
-      <dt>Location</dt><dd>LOC ${esc(b.location) || '—'} · Rack ${esc(b.rack) || '—'}</dd>
-    </dl>
-  </div>`;
-}
-
 function notFound(kind, bookNo) {
   const box = $(`#${kind}-result`);
   box.innerHTML = `<div class="result"><div class="alert alert-danger">${icon('alert')}<div><strong>Book not found</strong>
@@ -1699,5 +1727,8 @@ $('#restore-btn').addEventListener('click', async () => {
 
 /* ================= Boot ================= */
 enhancePasswords($('#login-form'));
+enhancePasswords($('#setup-form'));
 enterMovesTo($('#login-username'), $('#login-password'));
+enterMovesTo($('#setup-username'), $('#setup-password'));
+enterMovesTo($('#setup-password'), $('#setup-confirm'));
 showLogin();

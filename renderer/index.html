@@ -63,8 +63,28 @@
         <div id="login-error" class="form-error" hidden></div>
         <button type="submit" class="btn btn-primary btn-lg btn-block">Sign in</button>
         <div id="login-hint" class="login-hint" hidden>
-          Default login: <b>admin</b> / <b>admin123</b>. Change it in Settings after signing in.
+          This library still uses the factory default login. Change its password in Settings after signing in.
         </div>
+      </form>
+      <form id="setup-form" class="login-card" autocomplete="off" novalidate hidden>
+        <h2>Set up the library</h2>
+        <p class="muted">Create the first librarian account. You will use it to sign in.</p>
+        <label class="field">
+          <span>Username</span>
+          <input id="setup-username" type="text" maxlength="30" spellcheck="false" />
+          <span class="hint">3–30 characters: letters, numbers, . _ - (no spaces).</span>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="setup-password" type="password" maxlength="64" />
+          <span class="hint">At least 4 characters.</span>
+        </label>
+        <label class="field">
+          <span>Confirm password</span>
+          <input id="setup-confirm" type="password" maxlength="64" />
+        </label>
+        <div id="setup-error" class="form-error" hidden></div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block">Create account</button>
       </form>
       <div class="login-foot"><svg><use href="#i-lock"/></svg>Works offline &middot; Data is stored on this PC only</div>
       <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>Library Management System &copy; 2026 2CQR</a></div>

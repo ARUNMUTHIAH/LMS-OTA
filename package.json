@@ -10,11 +10,13 @@
   "scripts": {
     "start": "electron .",
     "test": "node test/smoke.js",
-    "dist": "electron-builder --win nsis --x64"
+    "dist": "electron-builder --win nsis --x64",
+    "lint": "eslint ."
   },
   "build": {
     "appId": "com.otacampus.library",
     "productName": "Technical Library - CGAS Chennai",
+    "executableName": "CGAS",
     "copyright": "© 2026 2CQR",
     "directories": {
       "output": "dist",
@@ -53,7 +55,11 @@
     "sql.js": "^1.14.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.39.5",
+    "eslint-plugin-security": "^4.2.0",
+    "globals": "^17.13.0"
   }
 }
