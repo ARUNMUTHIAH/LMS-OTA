@@ -1,0 +1,59 @@
+{
+  "name": "ota-campus-library",
+  "productName": "Technical Library - CGAS Chennai",
+  "version": "1.0.0",
+  "description": "Technical Library - CGAS Chennai — Library Management System",
+  "main": "main.js",
+  "author": "2CQR",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/smoke.js",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "build": {
+    "appId": "com.otacampus.library",
+    "productName": "Technical Library - CGAS Chennai",
+    "copyright": "© 2026 2CQR",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Technical Library - CGAS Chennai",
+      "artifactName": "${productName} Setup ${version}.exe"
+    }
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "sql.js": "^1.14.2"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  }
+}

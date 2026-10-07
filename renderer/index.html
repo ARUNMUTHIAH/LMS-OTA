@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'" />
+  <title>Technical Library - CGAS Chennai</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Icon sprite -->
+  <svg class="sprite" aria-hidden="true">
+    <defs>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6.5A2.5 2.5 0 0 0 4 21.5 2.5 2.5 0 0 0 6.5 24"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H19"/></symbol>
+      <symbol id="i-books" viewBox="0 0 24 24"><path d="M2 4h5v16H2z"/><path d="M7 4h5v16H7z"/><path d="m14.5 4.8 4.8-1.3 4 15.4-4.8 1.3z"/></symbol>
+      <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></symbol>
+      <symbol id="i-in" viewBox="0 0 24 24"><path d="M10 21H3v-7"/><path d="M14 10 3 21"/><path d="M3 10V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15v2"/><path d="M11 10v7"/><path d="M15 6v11"/><path d="M19 12v5"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-printer" viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></symbol>
+      <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 11h2"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+      <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M3 5v14"/><path d="M7 5v14"/><path d="M10 5v14"/><path d="M14 5v14"/><path d="M17 5v14"/><path d="M21 5v14"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.4 0 10 8 10 8a17.6 17.6 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M17.94 17.94A10.1 10.1 0 0 1 12 20c-6.4 0-10-8-10-8a17.9 17.9 0 0 1 5.06-5.94"/><path d="m2 2 20 20"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+      <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+      <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+      <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+      <symbol id="i-arrow-r" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></symbol>
+    </defs>
+  </svg>
+
+  <!-- ============ LOGIN ============ -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-panel">
+      <div class="login-brand">
+        <img src="assets/icon.png" alt="" />
+        <div><strong>Technical Library - CGAS Chennai</strong><span>Library Management System</span></div>
+      </div>
+      <form id="login-form" class="login-card" autocomplete="off" novalidate>
+        <h2>Sign in</h2>
+        <p class="muted">Use your librarian account to continue.</p>
+        <label class="field">
+          <span>Username</span>
+          <input id="login-username" type="text" maxlength="30" autofocus />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="login-password" type="password" maxlength="64" />
+        </label>
+        <div id="login-error" class="form-error" hidden></div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block">Sign in</button>
+        <div id="login-hint" class="login-hint" hidden>
+          Default login: <b>admin</b> / <b>admin123</b>. Change it in Settings after signing in.
+        </div>
+      </form>
+      <div class="login-foot"><svg><use href="#i-lock"/></svg>Works offline &middot; Data is stored on this PC only</div>
+      <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>Library Management System &copy; 2026 2CQR</a></div>
+    </div>
+  </section>
+
+  <!-- ============ APP ============ -->
+  <div id="app" class="app" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="assets/icon.png" alt="" />
+        <div><strong>Technical Library - CGAS Chennai</strong><span>Library Management System</span></div>
+      </div>
+      <nav class="nav">
+        <a href="#" data-page="dashboard" class="nav-item" title="Dashboard"><svg><use href="#i-grid"/></svg><span>Dashboard</span></a>
+        <a href="#" data-page="books" class="nav-item" title="Book Entry"><svg><use href="#i-books"/></svg><span>Book Entry</span></a>
+        <div class="nav-label">Circulation</div>
+        <a href="#" data-page="issue" class="nav-item" title="Issue Book"><svg><use href="#i-out"/></svg><span>Issue Book</span></a>
+        <a href="#" data-page="return" class="nav-item" title="Return Book"><svg><use href="#i-in"/></svg><span>Return Book</span></a>
+        <div class="nav-label">Administration</div>
+        <a href="#" data-page="reports" class="nav-item" title="Reports"><svg><use href="#i-chart"/></svg><span>Reports</span></a>
+        <a href="#" data-page="settings" class="nav-item" title="Settings"><svg><use href="#i-gear"/></svg><span>Settings</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="who"><div class="avatar" id="avatar">A</div><div><strong id="who-name">admin</strong><span>Librarian</span></div></div>
+        <button class="icon-btn ghost-light" id="logout-btn" title="Sign out"><svg><use href="#i-logout"/></svg></button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-sub" class="muted"></p>
+        </div>
+        <div class="topbar-right">
+          <div class="today-chip"><svg><use href="#i-calendar"/></svg><span id="today-label"></span></div>
+        </div>
+      </header>
+
+      <!-- DASHBOARD -->
+      <section class="page" id="page-dashboard">
+        <div class="tiles">
+          <button class="tile tile-indigo" data-goto="books">
+            <div class="tile-icon"><svg><use href="#i-books"/></svg></div>
+            <div class="tile-body"><span class="tile-label">Total Books</span><strong class="tile-value" id="t-total">0</strong><span class="tile-foot">All books in the catalogue</span></div>
+          </button>
+          <button class="tile tile-blue" data-goto="circulation">
+            <div class="tile-icon"><svg><use href="#i-out"/></svg></div>
+            <div class="tile-body"><span class="tile-label">Books in Circulation</span><strong class="tile-value" id="t-issued">0</strong><span class="tile-foot">Issued, not yet returned</span></div>
+          </button>
+          <button class="tile tile-green" data-goto="available">
+            <div class="tile-icon"><svg><use href="#i-check"/></svg></div>
+            <div class="tile-body"><span class="tile-label">Available Books</span><strong class="tile-value" id="t-available">0</strong><span class="tile-foot">On the shelf right now</span></div>
+          </button>
+          <button class="tile tile-rose" id="tile-overdue">
+            <div class="tile-icon"><svg><use href="#i-alert"/></svg></div>
+            <div class="tile-body"><span class="tile-label">Overdue Books</span><strong class="tile-value" id="t-overdue">0</strong><span class="tile-foot link">View overdue list <svg><use href="#i-arrow-r"/></svg></span></div>
+          </button>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-head"><h3>Collection status</h3></div>
+            <div class="donut-wrap">
+              <div class="donut" id="donut"><div class="donut-hole"><strong id="donut-pct">0%</strong><span>available</span></div></div>
+              <ul class="legend">
+                <li><i class="dot dot-green"></i>Available <b id="lg-available">0</b></li>
+                <li><i class="dot dot-blue"></i>Issued (on time) <b id="lg-ontime">0</b></li>
+                <li><i class="dot dot-rose"></i>Overdue <b id="lg-overdue">0</b></li>
+              </ul>
+            </div>
+            <div class="quick">
+              <button class="btn btn-soft" data-goto-page="issue"><svg><use href="#i-out"/></svg>Issue a book</button>
+              <button class="btn btn-soft" data-goto-page="return"><svg><use href="#i-in"/></svg>Return a book</button>
+              <button class="btn btn-soft" data-goto-page="books" data-new-book="1"><svg><use href="#i-plus"/></svg>Add a book</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>Due in the next 3 days</h3></div>
+            <div id="due-soon" class="list"></div>
+          </div>
+          <div class="card span-2">
+            <div class="card-head"><h3>Recent activity</h3></div>
+            <div id="recent" class="table-wrap"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BOOKS -->
+      <section class="page" id="page-books" hidden>
+        <div class="toolbar">
+          <div class="search">
+            <svg><use href="#i-search"/></svg>
+            <input id="book-search" type="search" maxlength="100" placeholder="Search by accession no, description, LF or CAT…" />
+          </div>
+          <select id="book-filter-status" class="select">
+            <option value="">All statuses</option>
+            <option>Available</option>
+            <option>Issued</option>
+          </select>
+          <div class="spacer"></div>
+          <button class="btn btn-soft" id="import-books-btn"><svg><use href="#i-sheet"/></svg>Import Excel</button>
+          <button class="btn btn-primary" id="add-book-btn"><svg><use href="#i-plus"/></svg>Add Book</button>
+        </div>
+        <div class="card flush">
+          <div id="books-table" class="table-wrap"></div>
+          <div class="pager" id="books-pager"></div>
+        </div>
+      </section>
+
+      <!-- ISSUE -->
+      <section class="page" id="page-issue" hidden>
+        <div class="circ-grid">
+          <div class="stack">
+            <div class="card scan-hero">
+              <div class="scan-hero-icon"><svg><use href="#i-search"/></svg></div>
+              <div class="scan-main">
+                <label for="issue-scan" class="scan-title">Enter the Accession Number</label>
+                <p class="scan-sub">Type the Accession Number of the book and press Enter.</p>
+                <div class="scan-row">
+                  <div class="scan-field">
+                    <svg><use href="#i-search"/></svg>
+                    <input id="issue-scan" class="scan-input" type="text" maxlength="50" placeholder="e.g. OTA-0001" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <button class="btn btn-primary" id="issue-find">Find Book</button>
+                </div>
+                <span class="field-error" hidden></span>
+              </div>
+            </div>
+            <div id="issue-result"></div>
+          </div>
+          <div class="card today-summary" data-summary></div>
+        </div>
+        <div class="card flush records-card" id="issue-records"></div>
+      </section>
+
+      <!-- RETURN -->
+      <section class="page" id="page-return" hidden>
+        <div class="circ-grid">
+          <div class="stack">
+            <div class="card scan-hero scan-hero-green">
+              <div class="scan-hero-icon"><svg><use href="#i-search"/></svg></div>
+              <div class="scan-main">
+                <label for="return-scan" class="scan-title">Enter the Accession Number</label>
+                <p class="scan-sub">Type the Accession Number of the book being returned and press Enter.</p>
+                <div class="scan-row">
+                  <div class="scan-field">
+                    <svg><use href="#i-search"/></svg>
+                    <input id="return-scan" class="scan-input" type="text" maxlength="50" placeholder="e.g. OTA-0001" autocomplete="off" spellcheck="false" />
+                  </div>
+                  <button class="btn btn-success" id="return-find">Find Book</button>
+                </div>
+                <span class="field-error" hidden></span>
+              </div>
+            </div>
+            <div id="return-result"></div>
+          </div>
+          <div class="card today-summary" data-summary></div>
+        </div>
+        <div class="card flush records-card" id="return-records"></div>
+      </section>
+
+      <!-- REPORTS -->
+      <section class="page" id="page-reports" hidden>
+        <div class="tabs" id="report-tabs">
+          <button class="tab" data-report="books"><svg><use href="#i-books"/></svg>Total Books</button>
+          <button class="tab" data-report="circulation"><svg><use href="#i-out"/></svg>Circulation</button>
+          <button class="tab" data-report="overdue"><svg><use href="#i-alert"/></svg>Overdue</button>
+        </div>
+        <div class="card report-filters">
+          <div class="filter-set" data-for="books">
+            <label class="field inline"><span>CAT</span><select id="rf-category" class="select"><option value="">All</option></select></label>
+            <label class="field inline"><span>LOC</span><select id="rf-location" class="select"><option value="">All</option></select></label>
+            <label class="field inline"><span>Rack</span><select id="rf-rack" class="select"><option value="">All</option></select></label>
+            <label class="field inline"><span>Status</span><select id="rf-status" class="select"><option value="">All</option><option>Available</option><option>Issued</option></select></label>
+          </div>
+          <div class="filter-set" data-for="circulation" hidden>
+            <label class="field inline"><span>Date based on</span>
+              <select id="rf-dateby" class="select">
+                <option value="issue">Issue date</option>
+                <option value="return">Return date</option>
+                <option value="due">Due date</option>
+              </select></label>
+            <label class="field inline"><span>From</span><input type="date" id="rf-from" /></label>
+            <label class="field inline"><span>To</span><input type="date" id="rf-to" /></label>
+            <label class="field inline"><span>Status</span>
+              <select id="rf-cstatus" class="select">
+                <option value="">All</option>
+                <option value="Out">Not returned yet</option>
+                <option value="Issued">Issued (on time)</option>
+                <option value="Overdue">Overdue</option>
+                <option value="AllReturned">All returned</option>
+                <option value="Returned">Returned on time</option>
+                <option value="Returned Late">Returned late</option>
+              </select></label>
+            <label class="field inline"><span>User Name</span><input type="text" id="rf-user" maxlength="100" placeholder="Any user" /></label>
+            <label class="field inline"><span>Accession No</span><input type="text" id="rf-bookno" maxlength="50" placeholder="Any book" spellcheck="false" /></label>
+          </div>
+          <div class="filter-set" data-for="overdue" hidden>
+            <label class="field inline"><span>As on date</span><input type="date" id="rf-ason" /></label>
+            <label class="field inline"><span>User Name</span><input type="text" id="rf-ouser" maxlength="100" placeholder="Any user" /></label>
+            <label class="field inline"><span>Accession No</span><input type="text" id="rf-obookno" maxlength="50" placeholder="Any book" spellcheck="false" /></label>
+          </div>
+          <div class="spacer"></div>
+          <div class="report-actions">
+            <button class="btn btn-ghost" id="rep-reset" title="Clear all filters"><svg><use href="#i-x"/></svg>Reset</button>
+            <button class="btn btn-ghost" id="rep-excel"><svg><use href="#i-sheet"/></svg>Excel</button>
+            <button class="btn btn-ghost" id="rep-pdf"><svg><use href="#i-file"/></svg>PDF</button>
+          </div>
+          <div class="filter-hint" id="rf-hint"></div>
+        </div>
+        <div class="card flush">
+          <div class="report-head">
+            <div><div class="org-eyebrow">Technical Library - CGAS Chennai</div><h3 id="rep-title">Report</h3><span class="muted" id="rep-filter-text"></span></div>
+            <span class="pill pill-indigo" id="rep-summary"></span>
+          </div>
+          <div class="table-tools">
+            <div class="search"><svg><use href="#i-search"/></svg><input id="rep-search" type="search" maxlength="100" placeholder="Search in this report…" /></div>
+          </div>
+          <div id="report-table" class="table-wrap"></div>
+          <div class="pager" id="report-pager"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page" id="page-settings" hidden>
+        <div class="settings-grid">
+
+            <form class="card" id="duration-form" novalidate>
+              <div class="card-head"><h3><svg><use href="#i-clock"/></svg>Default loan duration</h3></div>
+              <p class="muted">Pre-filled on the Issue screen. The librarian can still change it for each issue.</p>
+              <div class="field duration-field">
+                <span>Default duration <em>*</em></span>
+                <div class="inline-form">
+                  <input type="number" id="set-duration" min="1" max="365" step="1" />
+                  <span class="muted">days</span>
+                  <button class="btn btn-primary" type="submit">Save</button>
+                </div>
+              </div>
+            </form>
+
+            <div class="card">
+              <div class="card-head"><h3><svg><use href="#i-db"/></svg>Backup &amp; restore</h3></div>
+              <p class="muted">Keep a copy of all library data on a USB drive. Restoring replaces the current data with the backup.</p>
+              <div class="form-actions start">
+                <button class="btn btn-soft" id="backup-btn">Create backup</button>
+                <button class="btn btn-ghost danger" id="restore-btn">Restore from backup</button>
+              </div>
+              <p class="tiny muted" id="data-file"></p>
+            </div>
+
+          <div class="card flush users-card">
+            <div class="users-head">
+              <div><h3><svg><use href="#i-user"/></svg>Users <span class="pill" id="users-count">0</span></h3>
+                <p class="muted">Active users can sign in to the library system. Inactive users cannot.</p></div>
+              <div class="users-actions">
+                <div class="search search-sm"><svg><use href="#i-search"/></svg><input id="users-search" type="search" maxlength="30" placeholder="Search users…" /></div>
+                <button class="btn btn-ghost danger" id="delete-users-btn" type="button" disabled><svg><use href="#i-trash"/></svg><span>Delete Selected</span></button>
+                <button class="btn btn-primary" id="add-user-btn" type="button"><svg><use href="#i-plus"/></svg>New User</button>
+              </div>
+            </div>
+            <div id="users-table" class="table-wrap"></div>
+          </div>
+        </div>
+      </section>
+      <footer class="app-footer"><a href="https://2cqr.in/" class="copyright" data-website>Library Management System &copy; 2026 2CQR</a></footer>
+    </main>
+  </div>
+
+
+  <!-- Modal root & toasts -->
+  <div id="modal-root"></div>
+  <div id="toasts" class="toasts"></div>
+
+  <script src="rules.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
