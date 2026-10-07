@@ -2,7 +2,6 @@
 // All business rules for books, circulation, dashboard and reports live here so they
 // can be exercised without Electron (see test/smoke.js).
 
-const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const crypto = require('crypto');
@@ -14,12 +13,25 @@ const { checks } = require('../renderer/rules');
 // Settings warning about changing its password only applies to that account.
 const DEFAULT_USERNAME = 'admin';
 
-// Columns of the issues table, listed explicitly so callers get exactly these fields.
-const ISSUE_COLS = `id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
-  return_date, return_user, return_remarks, returned_late, issued_at, returned_at`;
+// Fixed queries on the issues table. Columns are listed so callers get exactly these fields.
+const ISSUE_SQL = {
+  byId: `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+         return_date, return_user, return_remarks, returned_late, issued_at, returned_at
+         FROM issues WHERE id = ?`,
+  issuedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+         return_date, return_user, return_remarks, returned_late, issued_at, returned_at
+         FROM issues WHERE issue_date = ? ORDER BY id DESC`,
+  returnedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+         return_date, return_user, return_remarks, returned_late, issued_at, returned_at
+         FROM issues WHERE return_date = ? ORDER BY returned_at DESC`,
+};
 
-// Columns that may be listed in the CAT / LOC / Rack filter menus (see shelfValues).
-const SHELF_COLS = ['category', 'location', 'rack'];
+// Values for the CAT / LOC / Rack filter menus.
+const SHELF_SQL = {
+  categories: "SELECT DISTINCT category AS v FROM books WHERE category <> '' ORDER BY category COLLATE NOCASE",
+  locations: "SELECT DISTINCT location AS v FROM books WHERE location <> '' ORDER BY location COLLATE NOCASE",
+  racks: "SELECT DISTINCT rack AS v FROM books WHERE rack <> '' ORDER BY rack COLLATE NOCASE",
+};
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS books (
@@ -94,6 +106,7 @@ class LibraryDB {
     const inst = new LibraryDB(SQL, filePath);
     const bytes = filePath ? await fsp.readFile(filePath).catch((e) => (e.code === 'ENOENT' ? null : Promise.reject(e))) : null;
     inst._load(bytes);
+    await inst.flush();
     return inst;
   }
 
@@ -101,6 +114,8 @@ class LibraryDB {
     this.SQL = SQL;
     this.filePath = filePath;
     this.db = null;
+    this._writes = Promise.resolve(); // queue of pending disk writes, oldest first
+    this._writeError = null;
   }
 
   _load(bytes) {
@@ -127,15 +142,33 @@ class LibraryDB {
     if (this.getSetting('default_duration') == null) this._setSetting('default_duration', '14');
   }
 
-  // Writes the database atomically: temp file then rename, so a crash never leaves a half-written file.
-  // Kept synchronous on purpose: every change is on disk before the next one can start, and this
-  // is a single-user desktop app, so there are no other requests to hold up.
+  // Queues a snapshot of the database for writing. Writes run in order without blocking the app;
+  // call flush() to wait until they are on disk (main.js does so before answering each request).
   _save() {
     if (!this.filePath) return;
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    const bytes = Buffer.from(this.db.export());
+    this._writes = this._writes
+      .then(() => this._write(bytes))
+      .catch((e) => {
+        console.error('Could not save the library database:', e);
+        this._writeError = e;
+      });
+  }
+
+  // Atomic write: temp file then rename, so a crash never leaves a half-written file.
+  async _write(bytes) {
+    await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
     const tmp = this.filePath + '.tmp';
-    fs.writeFileSync(tmp, Buffer.from(this.db.export()));
-    fs.renameSync(tmp, this.filePath);
+    await fsp.writeFile(tmp, bytes);
+    await fsp.rename(tmp, this.filePath);
+  }
+
+  // Waits for queued writes. Throws if one of them failed, so the caller can report it.
+  async flush() {
+    await this._writes;
+    const e = this._writeError;
+    this._writeError = null;
+    if (e) throw e;
   }
 
   all(sql, params = []) {
@@ -519,7 +552,7 @@ class LibraryDB {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [book.id, book.book_no, book.name, user, issueDate, days, dueDate, clean(remarks)]
       );
-      return this.get(`SELECT ${ISSUE_COLS} FROM issues WHERE id = ?`, [this._lastId()]);
+      return this.get(ISSUE_SQL.byId, [this._lastId()]);
     });
   }
 
@@ -537,17 +570,14 @@ class LibraryDB {
            returned_at = datetime('now','localtime') WHERE id = ?`,
         [returnDate, user, clean(remarks), late, book.issue_id]
       );
-      return this.get(`SELECT ${ISSUE_COLS} FROM issues WHERE id = ?`, [book.issue_id]);
+      return this.get(ISSUE_SQL.byId, [book.issue_id]);
     });
   }
 
   // Values used in the books, for the CAT / LOC / Rack filter menus.
   shelfValues() {
-    const distinct = (col) => {
-      if (!SHELF_COLS.includes(col)) throw new Error('Unknown shelf column ' + col);
-      return this.all(`SELECT DISTINCT ${col} AS v FROM books WHERE ${col} <> '' ORDER BY ${col} COLLATE NOCASE`).map((r) => r.v);
-    };
-    return { categories: distinct('category'), locations: distinct('location'), racks: distinct('rack') };
+    const values = (sql) => this.all(sql).map((r) => r.v);
+    return { categories: values(SHELF_SQL.categories), locations: values(SHELF_SQL.locations), racks: values(SHELF_SQL.racks) };
   }
 
   borrowerNames() {
@@ -572,9 +602,9 @@ class LibraryDB {
   todaysActivity(kind) {
     const t = today();
     if (kind === 'issue') {
-      return this.all(`SELECT ${ISSUE_COLS} FROM issues WHERE issue_date = ? ORDER BY id DESC`, [t]);
+      return this.all(ISSUE_SQL.issuedOn, [t]);
     }
-    return this.all(`SELECT ${ISSUE_COLS} FROM issues WHERE return_date = ? ORDER BY returned_at DESC`, [t]);
+    return this.all(ISSUE_SQL.returnedOn, [t]);
   }
 
   // ---------- Dashboard ----------
@@ -690,7 +720,9 @@ class LibraryDB {
     this._textFilters(where, params, { userName, bookNo, q });
     const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
     return this.all(
-      `SELECT ${ISSUE_COLS}, CASE
+      `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+         return_date, return_user, return_remarks, returned_late, issued_at, returned_at,
+              CASE
                    WHEN return_date IS NULL AND due_date < ? THEN 'Overdue'
                    WHEN return_date IS NULL THEN 'Issued'
                    WHEN returned_late = 1 THEN 'Returned Late'

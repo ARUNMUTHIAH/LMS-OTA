@@ -51,6 +51,7 @@
     }
   },
   "dependencies": {
+    "dompurify": "^3.4.16",
     "exceljs": "^4.4.0",
     "sql.js": "^1.14.2"
   },

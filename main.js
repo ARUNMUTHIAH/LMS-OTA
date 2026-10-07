@@ -60,7 +60,9 @@ function handle(channel, fn, { auth = true } = {}) {
   ipcMain.handle(channel, async (_event, ...args) => {
     if (auth && !session) return { ok: false, auth: true, error: 'Your session has ended. Please sign in again.' };
     try {
-      return { ok: true, data: await fn(...args) };
+      const data = await fn(...args);
+      await db.flush(); // changes are on disk before the screen is told they were saved
+      return { ok: true, data };
     } catch (e) {
       if (!(e instanceof UserError)) console.error(`[${channel}]`, e);
       return { ok: false, error: e instanceof UserError ? e.message : 'Unexpected error: ' + e.message };
@@ -91,7 +93,7 @@ async function renderReportWindow(type, filters) {
     win,
     cleanup() {
       if (!win.isDestroyed()) win.close();
-      fsp.rm(tmp, { force: true }).catch(() => {});
+      fsp.rm(tmp, { force: true }).catch((e) => console.warn('Could not remove temporary report file', tmp, e.message));
     },
   };
 }
@@ -368,4 +370,8 @@ app.whenReady().then(async () => {
   createWindow();
 });
 
-app.on('window-all-closed', () => app.quit());
+// Let any pending database write finish before the app exits.
+app.on('window-all-closed', () => {
+  const pending = db ? db.flush() : Promise.resolve();
+  pending.catch((e) => console.error('Could not save the library database on exit:', e)).finally(() => app.quit());
+});

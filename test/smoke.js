@@ -194,6 +194,7 @@ const expectUserError = (fn, pattern) =>
   assert.ok(reports.toHtml(db, 'books', {}).includes('<td class="">-</td>'), 'blank LF/LOC/Rack print as -');
 
   // Persistence: reopen from disk
+  await db.flush(); // saves are written in the background
   db = await LibraryDB.open(file);
   assert.strictEqual(db.dashboard().total, 2);
   assert.strictEqual(db.getSettings().defaultDuration, 21);
