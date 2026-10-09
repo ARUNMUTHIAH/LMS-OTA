@@ -14,6 +14,7 @@
     location: 30,
     rack: 30,
     person: 100,
+    detail: 50,
     remarks: 250,
     durationMin: 1,
     durationMax: 365,
@@ -28,10 +29,10 @@
   const checks = {
     bookNo(raw) {
       const v = clean(raw);
-      if (!v) return 'Accession Number is required.';
-      if (v.length > LIMITS.bookNo) return tooLong(v, LIMITS.bookNo, 'Accession Number');
+      if (!v) return 'Barcode No is required.';
+      if (v.length > LIMITS.bookNo) return tooLong(v, LIMITS.bookNo, 'Barcode No');
       if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(v)) {
-        return 'Accession Number can contain only letters, numbers and - / _ . (no spaces).';
+        return 'Barcode No can contain only letters, numbers and - / _ . (no spaces).';
       }
       return '';
     },
@@ -65,7 +66,7 @@
     rack(raw) {
       return tooLong(clean(raw), LIMITS.rack, 'Rack');
     },
-    person(raw, label = 'User Name') {
+    person(raw, label = 'Name') {
       const v = clean(raw);
       if (!v) return `${label} is required.`;
       if (v.length < 2) return `${label} must be at least 2 characters.`;
@@ -73,6 +74,15 @@
       if (!hasLetter(v)) return `${label} must contain letters.`;
       if (!/^[\p{L}\p{M}0-9 .'()/-]+$/u.test(v)) {
         return `${label} can contain only letters, numbers, spaces and . ' - ( ) /`;
+      }
+      return '';
+    },
+    // Optional borrower details on an issue: Rank, Number, Dept.
+    detail(raw, label) {
+      const v = clean(raw);
+      if (v.length > LIMITS.detail) return tooLong(v, LIMITS.detail, label);
+      if (v && !/^[\p{L}\p{M}0-9 .'()/&-]+$/u.test(v)) {
+        return `${label} can contain only letters, numbers, spaces and . ' - ( ) / &`;
       }
       return '';
     },
@@ -87,6 +97,11 @@
       if (n < LIMITS.durationMin || n > LIMITS.durationMax) {
         return `Duration must be between ${LIMITS.durationMin} and ${LIMITS.durationMax} days.`;
       }
+      return '';
+    },
+    backupKeep(raw) {
+      const s = raw == null ? '' : String(raw).trim();
+      if (!/^\d+$/.test(s) || Number(s) < 1 || Number(s) > 365) return 'Enter a whole number from 1 to 365.';
       return '';
     },
     username(raw) {

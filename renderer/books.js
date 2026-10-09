@@ -1,6 +1,9 @@
 'use strict';
 // Book Entry page: book list, add/edit/delete, and bulk import from Excel.
-// Screen scripts share one global scope and load in order from index.html.
+// Used by: renderer/index.html, which loads it with <script src="books.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Books ================= */
 
@@ -32,7 +35,7 @@ function renderBooks() {
   const filtered = state.books.query || state.books.status;
 
   setHtml($('#books-table'), slice.length
-    ? `<table class="table"><thead><tr><th>Accession No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th class="actions"></th></tr></thead><tbody>
+    ? `<table class="table"><thead><tr><th>Barcode No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th class="actions"></th></tr></thead><tbody>
       ${slice
         .map(
           (b) => `<tr>
@@ -102,8 +105,8 @@ function openImportDialog() {
     setHtml(body, `
       ${error ? `<div class="alert alert-danger import-alert">${icon('alert')}<div><strong>File not accepted</strong>${esc(error)}</div></div>` : ''}
       <ol class="import-steps">
-        <li><strong>Download the template</strong><span>Columns: Accession No, LF, CAT, Description of Manual, LOC, Rack. Accession No and Description of Manual are required.</span></li>
-        <li><strong>Fill in one book per row</strong><span>Keep the header row. Accession Numbers must be unique. Blank rows are skipped.</span></li>
+        <li><strong>Download the template</strong><span>Columns: Barcode No, LF, CAT, Description of Manual, LOC, Rack. Barcode No and Description of Manual are required.</span></li>
+        <li><strong>Fill in one book per row</strong><span>Keep the header row. Barcode Nos must be unique. Blank rows are skipped.</span></li>
         <li><strong>Choose the file</strong><span>Every row is checked first. Nothing is saved until you confirm.</span></li>
       </ol>`);
     setHtml(foot, `<button class="btn btn-ghost left" data-template>${icon('file')}Download Template</button>
@@ -148,7 +151,7 @@ function openImportDialog() {
           ? `<div class="alert alert-warn import-alert">${icon('alert')}<div><strong>${plural(bad, 'row')} with errors will not be imported</strong>
               ${p.readyCount ? `The ${plural(p.readyCount, 'correct row')} will be saved. ` : ''}The wrong rows will be saved to a separate
               <b>“…_not_imported”</b> Excel file next to your file, with the problem written beside each row. Correct that file and import it again.</div></div>
-            <div class="table-wrap import-errors"><table class="table"><thead><tr><th>Excel Row</th><th>Accession No</th><th>Problem</th></tr></thead><tbody>
+            <div class="table-wrap import-errors"><table class="table"><thead><tr><th>Excel Row</th><th>Barcode No</th><th>Problem</th></tr></thead><tbody>
               ${shown
                 .map(
                   (e) => `<tr><td class="num">${e.rowNumber}</td><td class="mono">${esc(e.book_no) || '<span class="muted">—</span>'}</td>
@@ -193,8 +196,8 @@ function openBookForm(book = null, prefillNo = '') {
   const m = openModal({
     title: isEdit ? 'Edit Book' : 'Add New Book',
     iconName: isEdit ? 'edit' : 'plus',
-    body: `<form id="book-form" autocomplete="off" novalidate>
-      <label class="field"><span>Accession Number <em>*</em></span><input name="book_no" maxlength="${LIMITS.bookNo}" spellcheck="false" value="${esc(b.book_no)}" placeholder="e.g. OTA-0001" />
+    body: `<form method="post" id="book-form" autocomplete="off" novalidate>
+      <label class="field"><span>Barcode No <em>*</em></span><input name="book_no" maxlength="${LIMITS.bookNo}" spellcheck="false" value="${esc(b.book_no)}" placeholder="e.g. OTA-0001" />
         <span class="hint">Must be unique. Letters, numbers and - / _ . only.</span></label>
       <div class="row-2">
         <label class="field"><span>LF</span><input name="lf" maxlength="${LIMITS.lf}" spellcheck="false" value="${esc(b.lf)}" placeholder="e.g. 001-06" /></label>
@@ -233,7 +236,7 @@ function openBookForm(book = null, prefillNo = '') {
     if (isEdit) data.id = book.id;
     const res = await window.api.saveBook(data);
     if (!res.ok) {
-      if (/Accession Number/i.test(res.error)) {
+      if (/Barcode No/i.test(res.error)) {
         showFieldError(form.book_no, res.error);
         form.book_no.focus();
         form.book_no.select();

@@ -1,7 +1,7 @@
 {
   "name": "ota-campus-library",
   "productName": "Technical Library - CGAS Chennai",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "Technical Library - CGAS Chennai — Library Management System",
   "main": "main.js",
   "author": "2CQR",
@@ -11,6 +11,7 @@
     "start": "electron .",
     "test": "node test/smoke.js",
     "dist": "electron-builder --win nsis --x64",
+    "dist:general": "node scripts/build-general.js",
     "lint": "eslint ."
   },
   "build": {
@@ -27,7 +28,10 @@
       "preload.js",
       "src/**/*",
       "renderer/**/*",
-      "package.json"
+      "package.json",
+      "server/api.js",
+      "server/library-db.js",
+      "db-config.json"
     ],
     "win": {
       "target": [
@@ -53,6 +57,7 @@
   "dependencies": {
     "dompurify": "^3.4.16",
     "exceljs": "^4.4.0",
+    "mysql2": "^3.24.5",
     "sql.js": "^1.14.2"
   },
   "devDependencies": {

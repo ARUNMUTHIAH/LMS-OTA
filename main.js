@@ -1,15 +1,21 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
-const { LibraryDB, UserError, DEFAULT_USERNAME } = require('./src/database');
+const { LibraryDB, UserError } = require('./src/database');
+const { RemoteDB, AuthError, asLibrary, EDITION, DEFAULT_SERVER_URL } = require('./src/remote');
+const { DirectDB } = require('./src/direct');
 const reports = require('./src/reports');
 const importer = require('./src/importer');
 const { today } = require('./src/dates');
 
-const APP_TITLE = 'Technical Library - CGAS Chennai — Library Management System';
+const APP_NAME = 'Technical Library - CGAS Chennai';
+const APP_TITLE = `${APP_NAME} — Library Management System`;
 
-let db = null;
+// All library data lives on the library server (MySQL); see server/ and src/remote.js.
+let remote = null; // RemoteDB: holds the signed-in session token
+let lib = null; // the same server, with the library's method names (lib.searchBooks(...), ...)
 let mainWindow = null;
 let session = null; // { id, username } of the logged-in librarian
 let pendingImport = null; // rows read from the last chosen import file, until imported or cancelled
@@ -40,6 +46,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      devTools: !app.isPackaged, // no DevTools in the installed app
     },
   });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -47,13 +54,72 @@ function createWindow() {
     mainWindow.maximize();
     mainWindow.show();
   });
+  const page = mainWindow.webContents;
   // Never navigate away from the app or open new windows inside it.
-  mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  page.on('will-navigate', (e) => e.preventDefault());
+  page.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // Reloading would sign the librarian out and lose the screen: F5, Ctrl+R, Ctrl+Shift+R do nothing.
+  page.on('before-input-event', (e, input) => {
+    const key = (input.key || '').toLowerCase();
+    if (input.type === 'keyDown' && (key === 'f5' || ((input.control || input.meta) && key === 'r'))) e.preventDefault();
+  });
+  // Right-click menu: cut / copy / paste / select all in text boxes, copy for selected text.
+  page.on('context-menu', (_e, p) => {
+    const items = p.isEditable
+      ? [
+          { role: 'cut', enabled: p.editFlags.canCut },
+          { role: 'copy', enabled: p.editFlags.canCopy },
+          { role: 'paste', enabled: p.editFlags.canPaste },
+          { type: 'separator' },
+          { role: 'selectAll' },
+        ]
+      : p.selectionText.trim()
+        ? [{ role: 'copy' }]
+        : [];
+    if (items.length) Menu.buildFromTemplate(items).popup({ window: mainWindow });
+  });
+  page.on('render-process-gone', (_e, details) => log('Screen stopped', details.reason, details.exitCode));
+  page.on('console-message', (e) => {
+    if (e.level === 'error') log('Screen error', e.message);
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
+
+// Save / open dialogs that give the keyboard back to the page when they close, so text boxes
+// keep working afterwards.
+const fileDialog = {
+  showSaveDialog: (...a) => dialog.showSaveDialog(...a).finally(focusPage),
+  showOpenDialog: (...a) => dialog.showOpenDialog(...a).finally(focusPage),
+};
+function focusPage() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.focus();
+    mainWindow.webContents.focus();
+  }
+}
+
+// Errors go to app.log in the data folder (%APPDATA%\<app name>\app.log) for support.
+const LOG_MAX = 2 * 1024 * 1024;
+function log(...parts) {
+  const line = `${new Date().toISOString()}  ${parts.map((p) => (p instanceof Error ? p.stack : typeof p === 'string' ? p : JSON.stringify(p))).join(' ')}\n`;
+  try {
+    const file = path.join(app.getPath('userData'), 'app.log');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (fs.existsSync(file) && fs.statSync(file).size > LOG_MAX) fs.renameSync(file, file + '.old');
+    fs.appendFileSync(file, line);
+  } catch {
+    // logging must never break the app
+  }
+}
+const consoleError = console.error.bind(console);
+console.error = (...a) => {
+  consoleError(...a);
+  log(...a);
+};
+process.on('uncaughtException', (e) => log('Uncaught', e));
+process.on('unhandledRejection', (e) => log('Unhandled', e));
 
 // Wraps IPC handlers so the renderer always receives { ok, data } or { ok: false, error }.
 function handle(channel, fn, { auth = true } = {}) {
@@ -61,20 +127,19 @@ function handle(channel, fn, { auth = true } = {}) {
     if (auth && !session) return { ok: false, auth: true, error: 'Your session has ended. Please sign in again.' };
     try {
       const data = await fn(...args);
-      await db.flush(); // changes are on disk before the screen is told they were saved
       return { ok: true, data };
     } catch (e) {
+      if (e instanceof AuthError) {
+        session = null;
+        return { ok: false, auth: true, error: e.message };
+      }
       if (!(e instanceof UserError)) console.error(`[${channel}]`, e);
-      return { ok: false, error: e instanceof UserError ? e.message : 'Unexpected error: ' + e.message };
+      return {
+        ok: false,
+        error: e instanceof UserError ? e.message : 'Something went wrong. Please try again. If it keeps happening, restart the app (details are saved in app.log).',
+      };
     }
   });
-}
-
-// Settings as seen by the signed-in user (their own username, not the first account's).
-function settingsForSession() {
-  const s = db.getSettings();
-  // The default-password warning only concerns the built-in "admin" account of older databases.
-  return { ...s, username: session.username, defaultCredentials: s.defaultCredentials && session.username.toLowerCase() === DEFAULT_USERNAME };
 }
 
 const exists = (p) => fsp.access(p).then(() => true, () => false);
@@ -84,7 +149,7 @@ function safeFileName(s) {
 }
 
 async function renderReportWindow(type, filters) {
-  const html = reports.toHtml(db, type, filters);
+  const html = await reports.toHtml(lib, type, filters);
   const tmp = path.join(os.tmpdir(), `ota-library-report-${Date.now()}.html`);
   await fsp.writeFile(tmp, html, 'utf8');
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
@@ -100,67 +165,59 @@ async function renderReportWindow(type, filters) {
 
 function registerIpc() {
   // ----- Auth -----
-  handle(
-    'auth:login',
-    ({ username, password }) => {
-      const user = db.verifyLogin(username, password);
-      if (!user) throw new UserError('Invalid username or password.');
-      if (!user.active) throw new UserError('This account is inactive. Ask a librarian to make it active in Settings → Users.');
-      session = user;
-      return { user, settings: settingsForSession() };
-    },
-    { auth: false }
-  );
-  handle('auth:logout', () => {
+  // The server checks the password and returns a session token; the user always comes from that token.
+  const signIn = (res) => {
+    remote.token = res.token;
+    session = res.user;
+    runAutoBackup().catch(() => {}); // today's backup, now that the data can be read
+    return { user: res.user, settings: res.settings };
+  };
+  handle('auth:login', async ({ username, password } = {}) => signIn(await remote.call('login', { username, password })), { auth: false });
+  handle('auth:logout', async () => {
+    await remote.call('logout').catch(() => {});
+    remote.token = null;
     session = null;
     return true;
   });
-  handle('auth:loginHint', () => db.getSettings().defaultCredentials, { auth: false });
-  // First start on a new database: there are no accounts until the librarian creates one.
-  handle('auth:setupNeeded', () => db.needsSetup(), { auth: false });
-  handle(
-    'auth:setup',
-    (payload) => {
-      const user = db.createFirstUser(payload || {});
-      session = user;
-      return { user, settings: settingsForSession() };
-    },
-    { auth: false }
-  );
-  handle('auth:changeCredentials', (payload) => {
-    session = db.changeCredentials(session.id, payload);
-    return settingsForSession();
+  handle('auth:loginHint', () => remote.call('loginHint'), { auth: false });
+  // First start on a new library: there are no accounts until the librarian creates one.
+  handle('auth:setupNeeded', () => remote.call('needsSetup'), { auth: false });
+  handle('auth:setup', async (payload) => signIn(await remote.call('setup', payload || {})), { auth: false });
+  handle('auth:changeCredentials', async (payload) => {
+    const res = await remote.call('changeCredentials', payload || {});
+    session = res.user;
+    return res.settings;
   });
 
   // ----- Users -----
-  handle('users:list', () => db.listUsers().map((u) => ({ ...u, me: u.id === session.id })));
-  handle('users:create', (payload) => db.createUser(payload || {}));
-  handle('users:update', (id, payload) => {
-    const user = db.updateUser(id, payload || {}, session.id);
+  handle('users:list', () => lib.listUsers());
+  handle('users:create', (payload) => lib.createUser(payload || {}));
+  handle('users:update', async (id, payload) => {
+    const user = await lib.updateUser(id, payload || {});
     if (user.id === session.id) session = user;
     return user;
   });
-  handle('users:delete', (id) => db.deleteUser(id, session.id));
-  handle('users:deleteMany', (ids) => db.deleteUsers(ids, session.id));
+  handle('users:delete', (id) => lib.deleteUser(id));
+  handle('users:deleteMany', (ids) => lib.deleteUsers(ids));
 
   // ----- Settings -----
-  handle('settings:get', () => settingsForSession());
-  handle('settings:setDuration', (days) => db.setDefaultDuration(days));
+  handle('settings:get', () => lib.getSettings());
+  handle('settings:setDuration', (days) => lib.setDefaultDuration(days));
 
   // ----- Dashboard -----
-  handle('dashboard:stats', () => db.dashboard());
-  handle('dashboard:overdue', () => db.overdueList(today()));
+  handle('dashboard:stats', () => lib.dashboard());
+  handle('dashboard:overdue', () => lib.overdueList(today()));
 
   // ----- Books -----
-  handle('books:search', (filters) => db.searchBooks(filters || {}));
-  handle('books:save', (book) => db.saveBook(book || {}));
-  handle('books:delete', (id) => db.deleteBook(id));
-  handle('books:categories', () => db.categories());
-  handle('books:shelfValues', () => db.shelfValues());
+  handle('books:search', (filters) => lib.searchBooks(filters || {}));
+  handle('books:save', (book) => lib.saveBook(book || {}));
+  handle('books:delete', (id) => lib.deleteBook(id));
+  handle('books:categories', () => lib.categories());
+  handle('books:shelfValues', () => lib.shelfValues());
 
   // ----- Bulk import from Excel -----
   handle('books:importTemplate', async () => {
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Save Import Template',
       defaultPath: path.join(app.getPath('documents'), 'Book_Import_Template.xlsx'),
       filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
@@ -175,7 +232,7 @@ function registerIpc() {
     return filePath;
   });
   handle('books:importPreview', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    const { canceled, filePaths } = await fileDialog.showOpenDialog(mainWindow, {
       title: 'Choose Excel File to Import',
       properties: ['openFile'],
       filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
@@ -183,7 +240,7 @@ function registerIpc() {
     if (canceled || !filePaths.length) return null;
     pendingImport = null;
     const sheet = await importer.readBookSheet(filePaths[0]);
-    const { total, ready, errors } = db.validateImport(sheet.rows);
+    const { total, ready, errors } = await lib.validateImport(sheet.rows);
     pendingImport = { rows: sheet.rows, errors, source: filePaths[0] };
     const { rows, ...info } = sheet;
     return { ...info, total, readyCount: ready.length, errors };
@@ -193,7 +250,7 @@ function registerIpc() {
   handle('books:importCommit', async () => {
     if (!pendingImport) throw new UserError('Choose the Excel file again before importing.');
     const { rows, source } = pendingImport;
-    const { imported, skipped, errors } = db.importBooks(rows);
+    const { imported, skipped, errors } = await lib.importBooks(rows);
     pendingImport = null;
     let rejectsFile = null;
     if (errors.length) {
@@ -215,7 +272,7 @@ function registerIpc() {
   });
   handle('books:importErrors', async () => {
     if (!pendingImport || !pendingImport.errors.length) throw new UserError('There are no import errors to save.');
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Save Import Error Report',
       defaultPath: path.join(app.getPath('documents'), `Book_Import_Errors_${today()}.xlsx`),
       filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
@@ -231,26 +288,26 @@ function registerIpc() {
   });
 
   // ----- Circulation -----
-  handle('circ:lookup', (bookNo) => db.lookupForCirculation(bookNo));
-  handle('circ:issue', (payload) => db.issueBook(payload || {}));
-  handle('circ:return', (payload) => db.returnBook(payload || {}));
-  handle('circ:today', (kind) => db.todaysActivity(kind));
-  handle('circ:list', (filters) => db.circulationList(filters || {}));
-  handle('circ:borrowers', () => db.borrowerNames());
+  handle('circ:lookup', (bookNo) => lib.lookupForCirculation(bookNo));
+  handle('circ:issue', (payload) => lib.issueBook(payload || {}));
+  handle('circ:return', (payload) => lib.returnBook(payload || {}));
+  handle('circ:today', (kind) => lib.todaysActivity(kind));
+  handle('circ:list', (filters) => lib.circulationList(filters || {}));
+  handle('circ:borrowers', () => lib.borrowerNames());
 
   // ----- Reports -----
-  handle('reports:get', (type, filters) => reports.buildReport(db, type, filters || {}));
+  handle('reports:get', (type, filters) => reports.buildReport(lib, type, filters || {}));
 
   handle('reports:excel', async (type, filters) => {
     const title = reports.REPORTS[type]?.title || 'Report';
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Export to Excel',
       defaultPath: path.join(app.getPath('documents'), `${safeFileName(title)}_${today()}.xlsx`),
       filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
     });
     if (canceled || !filePath) return null;
     try {
-      await reports.toExcel(db, type, filters || {}, filePath);
+      await reports.toExcel(lib, type, filters || {}, filePath);
     } catch (e) {
       if (e.code === 'EBUSY' || e.code === 'EPERM') {
         throw new UserError('Could not save the file. Please close it in Excel and try again.');
@@ -262,7 +319,7 @@ function registerIpc() {
 
   handle('reports:pdf', async (type, filters) => {
     const title = reports.REPORTS[type]?.title || 'Report';
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Export to PDF',
       defaultPath: path.join(app.getPath('documents'), `${safeFileName(title)}_${today()}.pdf`),
       filters: [{ name: 'PDF Document', extensions: ['pdf'] }],
@@ -308,70 +365,171 @@ function registerIpc() {
 
   // ----- Backup / restore -----
   handle('db:backup', async () => {
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+    const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Save Library Backup',
-      defaultPath: path.join(app.getPath('documents'), `Technical Library - CGAS Chennai Backup ${today()}.db`),
+      defaultPath: path.join(app.getPath('documents'), `${APP_NAME} Backup ${today()}.db`),
       filters: [{ name: 'Library Backup', extensions: ['db'] }],
     });
     if (canceled || !filePath) return null;
-    await fsp.writeFile(filePath, db.exportBytes());
+    await fsp.writeFile(filePath, await backupBytes());
     return filePath;
   });
 
   handle('db:restore', async () => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    const { canceled, filePaths } = await fileDialog.showOpenDialog(mainWindow, {
       title: 'Restore Library Backup',
       properties: ['openFile'],
       filters: [{ name: 'Library Backup', extensions: ['db'] }],
     });
     if (canceled || !filePaths.length) return null;
-    // Keep a safety copy of the current data before replacing it.
+    // Check the file and bring it up to the current layout before anything on the server changes.
+    const local = await LibraryDB.open(null);
+    local.restoreFrom(await fsp.readFile(filePaths[0]));
+    const data = local.exportData();
+    // Keep a safety copy of the server's current data before replacing it.
     const safety = path.join(app.getPath('userData'), `before-restore-${Date.now()}.db`);
-    await fsp.writeFile(safety, db.exportBytes());
-    db.restoreFrom(await fsp.readFile(filePaths[0]));
+    await fsp.mkdir(path.dirname(safety), { recursive: true });
+    await fsp.writeFile(safety, await backupBytes());
+    await lib.replaceData(data);
+    remote.token = null;
     session = null; // credentials may differ in the restored data
     return filePaths[0];
   });
 
+  handle('backup:getAuto', () => autoBackupView());
+  handle('backup:setAuto', async ({ enabled, keep } = {}) => {
+    const n = Number(keep);
+    if (!Number.isInteger(n) || n < 1 || n > 365) throw new UserError('Keep must be between 1 and 365 backups.');
+    await saveAutoBackupConfig({ ...autoBackup, enabled: !!enabled, keep: n });
+    if (autoBackup.enabled) await runAutoBackup();
+    return autoBackupView();
+  });
+  handle('backup:chooseFolder', async () => {
+    const { canceled, filePaths } = await fileDialog.showOpenDialog(mainWindow, {
+      title: 'Choose Auto Backup Folder',
+      defaultPath: autoBackup.folder,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (canceled || !filePaths.length) return null;
+    await saveAutoBackupConfig({ ...autoBackup, folder: filePaths[0] });
+    if (autoBackup.enabled) await runAutoBackup();
+    return autoBackupView();
+  });
+  handle('backup:runNow', async () => {
+    const file = await runAutoBackup({ force: true });
+    return { file, ...autoBackupView() };
+  });
+
   handle('app:info', () => ({
     version: app.getVersion(),
-    dataFile: db.filePath,
+    dataFile: `Library database ${remote.serverUrl} (${EDITION === 'general' ? 'tables general_books, general_issues, general_users' : 'tables books, issues, users'})`,
   }));
 }
 
-// The app has been renamed, and each name has its own data folder. On first start under the
-// current name, copy the library database from the most recent earlier folder (older copies are
-// left untouched as a fallback).
-const PREVIOUS_DATA_FOLDERS = ['Technical Library CGAS Chennai', 'Dornier Aircraft Publication Library', 'OTA Campus Library'];
+// ---------- Automatic backup ----------
+// Settings live in the data folder (auto-backup.json), not in the library database, so a restore
+// never changes where backups go. One file per day in the chosen folder, written at start-up,
+// when the day changes and on exit; the oldest are deleted beyond "keep".
+const AUTO_BACKUP_PREFIX = `${APP_NAME} Auto Backup `;
+let autoBackup = null; // { enabled, folder, keep, last, lastFile, error }
 
-async function carryOverOldData(dbFile) {
-  if (await exists(dbFile)) return;
-  for (const folder of PREVIOUS_DATA_FOLDERS) {
-    const oldFile = path.join(app.getPath('appData'), folder, 'library.db');
-    if (!(await exists(oldFile))) continue;
-    await fsp.mkdir(path.dirname(dbFile), { recursive: true });
-    await fsp.copyFile(oldFile, dbFile);
-    return;
+const autoBackupFile = () => path.join(app.getPath('userData'), 'auto-backup.json');
+
+async function loadAutoBackupConfig() {
+  const defaults = { enabled: true, folder: path.join(app.getPath('documents'), `${APP_NAME} Backups`), keep: 30, last: '', lastFile: '', error: '' };
+  try {
+    autoBackup = { ...defaults, ...JSON.parse(await fsp.readFile(autoBackupFile(), 'utf8')) };
+  } catch {
+    autoBackup = defaults;
   }
+}
+
+async function saveAutoBackupConfig(next) {
+  autoBackup = next;
+  await fsp.mkdir(path.dirname(autoBackupFile()), { recursive: true });
+  await fsp.writeFile(autoBackupFile(), JSON.stringify(autoBackup, null, 2));
+}
+
+function autoBackupView() {
+  const { enabled, folder, keep, last, lastFile, error } = autoBackup;
+  return { enabled, folder, keep, last, lastFile, error };
+}
+
+// A backup file in the usual format (SQLite .db), made from all of the server's data.
+async function backupBytes() {
+  const local = await LibraryDB.open(null);
+  local.replaceData(await lib.exportData());
+  return local.exportBytes();
+}
+
+// Writes today's backup unless one exists already (force: overwrite it with the current data).
+// Needs a signed-in session: the server only gives its data to a librarian.
+async function runAutoBackup({ force = false } = {}) {
+  if (!session || !autoBackup || (!autoBackup.enabled && !force)) return null;
+  const day = today();
+  if (!force && autoBackup.last === day) return null;
+  const file = path.join(autoBackup.folder, `${AUTO_BACKUP_PREFIX}${day}.db`);
+  try {
+    await fsp.mkdir(autoBackup.folder, { recursive: true });
+    await fsp.writeFile(file + '.tmp', await backupBytes());
+    await fsp.rename(file + '.tmp', file);
+    const old = (await fsp.readdir(autoBackup.folder))
+      .filter((f) => f.startsWith(AUTO_BACKUP_PREFIX) && f.endsWith('.db'))
+      .sort()
+      .slice(0, -autoBackup.keep);
+    for (const f of old) await fsp.unlink(path.join(autoBackup.folder, f)).catch(() => {});
+    await saveAutoBackupConfig({ ...autoBackup, last: day, lastFile: file, error: '' });
+    return file;
+  } catch (e) {
+    console.error('Automatic backup failed:', e);
+    await saveAutoBackupConfig({ ...autoBackup, error: `${day}: ${e.message}` }).catch(() => {});
+    if (force) throw new UserError('Could not write the backup: ' + e.message);
+    return null;
+  }
+}
+
+// Where the library data lives: the live MySQL database in db-config.json, built into the app
+// ({ host, port, user, password, database }). Version 1 and version 2 use their own tables there.
+// Without that file: the API server (built-in address, or server.json in the data folder).
+async function readJson(file) {
+  try {
+    return JSON.parse(await fsp.readFile(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function connectLibrary() {
+  const db = await readJson(path.join(__dirname, 'db-config.json'));
+  if (db && db.host && db.user && db.database) return new DirectDB(db, EDITION);
+  const cfg = await readJson(path.join(app.getPath('userData'), 'server.json'));
+  const url = cfg && typeof cfg.url === 'string' && /^https?:\/\//.test(cfg.url) ? cfg.url : DEFAULT_SERVER_URL;
+  return new RemoteDB(url, EDITION);
 }
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
-  const dbFile = path.join(app.getPath('userData'), 'library.db');
-  try {
-    await carryOverOldData(dbFile);
-    db = await LibraryDB.open(dbFile);
-  } catch (e) {
-    dialog.showErrorBox(APP_TITLE, 'Could not open the library database.\n\n' + e.message);
-    app.quit();
-    return;
-  }
+  // The screens need no camera, microphone, location, notifications or other browser features.
+  const browser = require('electron').session.defaultSession;
+  browser.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  browser.setPermissionCheckHandler(() => false);
+  remote = await connectLibrary();
+  if (remote.warmUp) remote.warmUp();
+  lib = asLibrary(remote);
+  await loadAutoBackupConfig();
+  setInterval(() => runAutoBackup(), 60 * 60 * 1000); // picks up the new day if left open overnight
   registerIpc();
   createWindow();
 });
 
-// Let any pending database write finish before the app exits.
+// On exit: refresh today's backup with the latest data, then end the session on the server.
 app.on('window-all-closed', () => {
-  const pending = db ? db.flush() : Promise.resolve();
-  pending.catch((e) => console.error('Could not save the library database on exit:', e)).finally(() => app.quit());
+  const pending = session
+    ? (autoBackup && autoBackup.enabled ? runAutoBackup({ force: true }) : Promise.resolve()).finally(() => remote.call('logout'))
+    : Promise.resolve();
+  pending
+    .catch((e) => console.error('Could not finish on exit:', e.message))
+    .then(() => (remote && remote.close ? remote.close() : null)) // close the database connections
+    .catch(() => {})
+    .finally(() => app.quit());
 });

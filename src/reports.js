@@ -1,4 +1,5 @@
 // Report definitions shared by the on-screen view, Excel export, PDF export and printing.
+// `db` is the library: the server connection in the app, or a local LibraryDB in the tests.
 
 const ExcelJS = require('exceljs');
 
@@ -21,7 +22,7 @@ const REPORTS = {
   books: {
     title: 'Total Books Report',
     columns: [
-      { key: 'book_no', label: 'Accession No', width: 14 },
+      { key: 'book_no', label: 'Barcode No', width: 14 },
       { key: 'lf', label: 'LF', width: 10 },
       { key: 'category', label: 'CAT', width: 12 },
       { key: 'name', label: 'Description of Manual', width: 48 },
@@ -29,8 +30,8 @@ const REPORTS = {
       { key: 'rack', label: 'Rack', width: 8 },
       { key: 'status', label: 'Status', width: 12 },
     ],
-    build(db, f) {
-      const rows = db.searchBooks({ query: f.q, category: f.category, status: f.status, location: f.location, rack: f.rack });
+    async build(db, f) {
+      const rows = await db.searchBooks({ query: f.q, category: f.category, status: f.status, location: f.location, rack: f.rack });
       const parts = [];
       parts.push(`CAT: ${f.category || 'All'}`);
       parts.push(`LOC: ${f.location || 'All'}`);
@@ -48,9 +49,12 @@ const REPORTS = {
   circulation: {
     title: 'Circulation Report',
     columns: [
-      { key: 'book_no', label: 'Accession No', width: 14 },
+      { key: 'book_no', label: 'Barcode No', width: 14 },
       { key: 'book_name', label: 'Description', width: 30 },
       { key: 'issue_user', label: 'Issued To', width: 20 },
+      { key: 'issue_rank', label: 'Rank', width: 10 },
+      { key: 'issue_number', label: 'Number', width: 12 },
+      { key: 'issue_dept', label: 'Dept', width: 12 },
       { key: 'issue_date', label: 'Issue Date', width: 12, date: true },
       { key: 'due_date', label: 'Due Date', width: 12, date: true },
       { key: 'return_date', label: 'Return Date', width: 12, date: true },
@@ -58,11 +62,11 @@ const REPORTS = {
       { key: 'status', label: 'Status', width: 14 },
       { key: 'remarks', label: 'Remarks', width: 36 },
     ],
-    build(db, f) {
+    async build(db, f) {
       const dateBy = f.dateBy || 'issue';
-      const rows = db
-        .circulationList({ from: f.from, to: f.to, dateBy, userName: f.userName, bookNo: f.bookNo, status: f.status, q: f.q })
-        .map((r) => {
+      const rows = (
+        await db.circulationList({ from: f.from, to: f.to, dateBy, userName: f.userName, bookNo: f.bookNo, status: f.status, q: f.q })
+      ).map((r) => {
           const remarks = [];
           if (r.issue_remarks) remarks.push(`Issue: ${r.issue_remarks}`);
           if (r.return_remarks) remarks.push(`Return: ${r.return_remarks}`);
@@ -70,8 +74,8 @@ const REPORTS = {
         });
       const dateLabel = DATE_BY_LABELS[dateBy] || 'Issue date';
       const range = f.from || f.to ? `${dateLabel}: ${f.from ? display(f.from) : 'Start'} to ${f.to ? display(f.to) : 'Any'}` : `${dateLabel}: All`;
-      const parts = [range, `Status: ${STATUS_LABELS[f.status || ''] || 'All'}`, `User: ${f.userName || 'All'}`];
-      if (f.bookNo) parts.push(`Accession No: ${f.bookNo}`);
+      const parts = [range, `Status: ${STATUS_LABELS[f.status || ''] || 'All'}`, `Name: ${f.userName || 'All'}`];
+      if (f.bookNo) parts.push(`Barcode No: ${f.bookNo}`);
       if (f.q) parts.push(`Search: "${f.q}"`);
       return {
         rows,
@@ -83,18 +87,21 @@ const REPORTS = {
   overdue: {
     title: 'Overdue Books Report',
     columns: [
-      { key: 'book_no', label: 'Accession No', width: 14 },
+      { key: 'book_no', label: 'Barcode No', width: 14 },
       { key: 'book_name', label: 'Description', width: 34 },
-      { key: 'issue_user', label: 'User Name', width: 22 },
+      { key: 'issue_user', label: 'Name', width: 22 },
+      { key: 'issue_rank', label: 'Rank', width: 10 },
+      { key: 'issue_number', label: 'Number', width: 12 },
+      { key: 'issue_dept', label: 'Dept', width: 12 },
       { key: 'issue_date', label: 'Issue Date', width: 12, date: true },
       { key: 'due_date', label: 'Due Date', width: 12, date: true },
       { key: 'days_overdue', label: 'Days Overdue', width: 14, num: true },
     ],
-    build(db, f) {
+    async build(db, f) {
       const asOn = f.asOn || today();
-      const rows = db.overdueList(asOn, { userName: f.userName, bookNo: f.bookNo, q: f.q });
-      const parts = [`As on: ${display(asOn)}`, `User: ${f.userName || 'All'}`];
-      if (f.bookNo) parts.push(`Accession No: ${f.bookNo}`);
+      const rows = await db.overdueList(asOn, { userName: f.userName, bookNo: f.bookNo, q: f.q });
+      const parts = [`As on: ${display(asOn)}`, `Name: ${f.userName || 'All'}`];
+      if (f.bookNo) parts.push(`Barcode No: ${f.bookNo}`);
       if (f.q) parts.push(`Search: "${f.q}"`);
       return {
         rows,
@@ -105,10 +112,10 @@ const REPORTS = {
   },
 };
 
-function buildReport(db, type, filters = {}) {
+async function buildReport(db, type, filters = {}) {
   const def = REPORTS[type];
   if (!def) throw new Error('Unknown report: ' + type);
-  const result = def.build(db, filters);
+  const result = await def.build(db, filters);
   return {
     type,
     title: def.title,
@@ -127,7 +134,7 @@ function cellText(col, row) {
 
 async function toExcel(db, type, filters, filePath) {
   const def = REPORTS[type];
-  const rep = buildReport(db, type, filters);
+  const rep = await buildReport(db, type, filters);
   const wb = new ExcelJS.Workbook();
   wb.creator = ORG_NAME;
   wb.created = new Date();
@@ -183,8 +190,8 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-function toHtml(db, type, filters) {
-  const rep = buildReport(db, type, filters);
+async function toHtml(db, type, filters) {
+  const rep = await buildReport(db, type, filters);
   const head = rep.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${escapeHtml(c.label)}</th>`).join('');
   const body = rep.rows.length
     ? rep.rows

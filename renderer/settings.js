@@ -1,6 +1,9 @@
 'use strict';
-// Settings page: users, loan duration, backup and restore.
-// Screen scripts share one global scope and load in order from index.html.
+// Settings page: users, loan duration, backup and restore, automatic backup.
+// Used by: renderer/index.html, which loads it with <script src="settings.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Settings ================= */
 async function loadSettings() {
@@ -8,7 +11,8 @@ async function loadSettings() {
   state.settings = s;
   clearFieldErrors($('#page-settings'));
   $('#set-duration').value = s.defaultDuration;
-  $('#data-file').textContent = `Data file: ${info.dataFile}  ·  Version ${info.version}`;
+  $('#data-file').textContent = `${info.dataFile}  ·  Version ${info.version}`;
+  renderAutoBackup(await rpc('getAutoBackup'));
   await loadUsers();
 }
 
@@ -81,7 +85,7 @@ function openUserForm(user = null) {
     title: isEdit ? `Edit User “${user.username}”` : 'Add User',
     iconName: isEdit ? 'edit' : 'plus',
     size: 'small',
-    body: `<form id="user-form" autocomplete="off" novalidate>
+    body: `<form method="post" id="user-form" autocomplete="off" novalidate>
       <label class="field"><span>Username <em>*</em></span><input name="username" maxlength="30" spellcheck="false" value="${esc(isEdit ? user.username : '')}" />
         <span class="hint">3–30 characters: letters, numbers, . _ - (no spaces).</span></label>
       <label class="field"><span>Password${isEdit ? '' : ' <em>*</em>'}</span><input name="password" type="password" maxlength="64" ${isEdit ? 'placeholder="Leave blank to keep the current password"' : ''} />
@@ -222,3 +226,48 @@ $('#restore-btn').addEventListener('click', async () => {
     toast('Backup restored. Please sign in again.');
   });
 });
+
+/* ----- Automatic backup ----- */
+function renderAutoBackup(ab) {
+  state.autoBackup = ab;
+  $('#ab-enabled').checked = ab.enabled;
+  $('#ab-folder').value = ab.folder;
+  $('#ab-folder').title = ab.folder;
+  $('#ab-keep').value = ab.keep;
+  const last = ab.last ? `Last automatic backup: ${fmtDate(ab.last)}` : 'No automatic backup yet.';
+  $('#ab-status').textContent = ab.error ? `${last}  ·  Last attempt failed (${ab.error})` : last;
+}
+
+const saveAutoBackup = () =>
+  attempt(async () => {
+    renderAutoBackup(await rpc('setAutoBackup', { enabled: $('#ab-enabled').checked, keep: Number($('#ab-keep').value) }));
+    toast(state.autoBackup.enabled ? 'Automatic backup is on.' : 'Automatic backup is off.');
+  });
+
+$('#ab-enabled').addEventListener('change', () => {
+  if (validateFields([[$('#ab-keep'), RULES.backupKeep]])) saveAutoBackup();
+});
+
+$('#autobackup-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (validateFields([[$('#ab-keep'), RULES.backupKeep]])) saveAutoBackup();
+});
+
+$('#ab-choose').addEventListener('click', (e) =>
+  withBusy(e.currentTarget, async () => {
+    const ab = await rpc('chooseBackupFolder');
+    if (!ab) return;
+    renderAutoBackup(ab);
+    toast('Backup folder changed.');
+  })
+);
+
+$('#ab-now').addEventListener('click', (e) =>
+  withBusy(e.currentTarget, async () => {
+    const res = await rpc('runAutoBackup');
+    renderAutoBackup(res);
+    savedToast('Backup', res.file);
+  })
+);
+
+$('#ab-open').addEventListener('click', () => attempt(() => rpc('openFile', $('#ab-folder').value)));

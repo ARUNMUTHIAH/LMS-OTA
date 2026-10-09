@@ -1,6 +1,9 @@
 'use strict';
 // Dashboard page: tiles, chart, due-soon list, recent activity and the overdue dialog.
-// Screen scripts share one global scope and load in order from index.html.
+// Used by: renderer/index.html, which loads it with <script src="dashboard.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Dashboard ================= */
 function animateNumber(el, to) {
@@ -52,7 +55,7 @@ async function loadDashboard() {
     : emptyState('check', 'Nothing due in the next 3 days.'));
 
   setHtml($('#recent'), s.recent.length
-    ? `<table class="table"><thead><tr><th>When</th><th>Action</th><th>Accession No</th><th>Description</th><th>User</th><th>Due Date</th></tr></thead><tbody>
+    ? `<table class="table"><thead><tr><th>When</th><th>Action</th><th>Barcode No</th><th>Description</th><th>User</th><th>Due Date</th></tr></thead><tbody>
       ${s.recent
         .map(
           (r) => `<tr><td class="date">${esc(fmtDateTime(r.at))}</td><td>${badge(r.action === 'Issued' ? 'Issued' : r.action)}</td>
@@ -82,7 +85,7 @@ async function showOverdueModal() {
     size: 'wide overdue-modal',
     body: rows.length
       ? `<div class="modal-tools">
-          <div class="search"><svg><use href="#i-search"/></svg><input data-q type="search" maxlength="100" placeholder="Search accession no, description or borrower…" /></div>
+          <div class="search"><svg><use href="#i-search"/></svg><input data-q type="search" maxlength="100" placeholder="Search barcode no, description or borrower…" /></div>
           <span class="muted tiny" data-caption></span>
         </div>
         <div class="table-wrap modal-table" data-table></div>
@@ -104,7 +107,7 @@ async function showOverdueModal() {
     const { pages, start, slice } = pageSlice(shown, st);
     $('[data-caption]', m.el).textContent = q ? `${shown.length} of ${rows.length} match` : 'Most overdue first';
     setHtml($('[data-table]', m.el), slice.length
-      ? `<table class="table"><thead><tr><th class="idx">#</th><th>Accession No</th><th>Description</th><th>Borrower</th><th>Issue Date</th><th>Due Date</th><th class="num">Days Overdue</th></tr></thead><tbody>
+      ? `<table class="table"><thead><tr><th class="idx">#</th><th>Barcode No</th><th>Description</th><th>Borrower</th><th>Issue Date</th><th>Due Date</th><th class="num">Days Overdue</th></tr></thead><tbody>
         ${slice
           .map(
             (r, i) => `<tr><td class="idx muted">${start + i + 1}</td><td class="mono">${esc(r.book_no)}</td><td class="strong wrap">${esc(r.book_name)}</td><td>${esc(r.issue_user)}</td>

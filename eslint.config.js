@@ -3,7 +3,7 @@ const globals = require('globals');
 const security = require('eslint-plugin-security');
 
 module.exports = [
-  { ignores: ['node_modules/', 'dist/'] },
+  { ignores: ['node_modules/', 'dist/', 'dist-general/', '.build-general/', 'server/node_modules/'] },
   js.configs.recommended,
   security.configs.recommended,
   {
@@ -17,7 +17,7 @@ module.exports = [
   },
   {
     // Main process, preload, database layer and tests run under Node / Electron.
-    files: ['main.js', 'preload.js', 'src/**/*.js', 'test/**/*.js', 'eslint.config.js'],
+    files: ['main.js', 'preload.js', 'src/**/*.js', 'test/**/*.js', 'scripts/**/*.js', 'server/**/*.js', 'eslint.config.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'commonjs', globals: { ...globals.node } },
   },
   {

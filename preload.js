@@ -50,5 +50,9 @@ contextBridge.exposeInMainWorld('api', {
 
   backup: call('db:backup'),
   restore: call('db:restore'),
+  getAutoBackup: call('backup:getAuto'),
+  setAutoBackup: call('backup:setAuto'),
+  chooseBackupFolder: call('backup:chooseFolder'),
+  runAutoBackup: call('backup:runNow'),
   appInfo: call('app:info'),
 });

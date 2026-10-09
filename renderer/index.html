@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" />
+  <meta name="referrer" content="no-referrer" />
   <title>Technical Library - CGAS Chennai</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -49,7 +50,7 @@
         <img src="assets/icon.png" alt="" />
         <div><strong>Technical Library - CGAS Chennai</strong><span>Library Management System</span></div>
       </div>
-      <form id="login-form" class="login-card" autocomplete="off" novalidate>
+      <form method="post" id="login-form" class="login-card" autocomplete="off" novalidate>
         <h2>Sign in</h2>
         <p class="muted">Use your librarian account to continue.</p>
         <label class="field">
@@ -66,27 +67,21 @@
           This library still uses the factory default login. Change its password in Settings after signing in.
         </div>
       </form>
-      <form id="setup-form" class="login-card" autocomplete="off" novalidate hidden>
+      <form method="post" id="setup-form" class="login-card" autocomplete="off" novalidate hidden>
         <h2>Set up the library</h2>
         <p class="muted">Create the first librarian account. You will use it to sign in.</p>
         <label class="field">
           <span>Username</span>
           <input id="setup-username" type="text" maxlength="30" spellcheck="false" />
-          <span class="hint">3–30 characters: letters, numbers, . _ - (no spaces).</span>
         </label>
         <label class="field">
           <span>Password</span>
           <input id="setup-password" type="password" maxlength="64" />
-          <span class="hint">At least 4 characters.</span>
-        </label>
-        <label class="field">
-          <span>Confirm password</span>
-          <input id="setup-confirm" type="password" maxlength="64" />
         </label>
         <div id="setup-error" class="form-error" hidden></div>
         <button type="submit" class="btn btn-primary btn-lg btn-block">Create account</button>
       </form>
-      <div class="login-foot"><svg><use href="#i-lock"/></svg>Works offline &middot; Data is stored on this PC only</div>
+      <div class="login-foot"><svg><use href="#i-lock"/></svg>Data is kept on the library server</div>
       <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>Library Management System &copy; 2026 2CQR</a></div>
     </div>
   </section>
@@ -134,7 +129,7 @@
           </button>
           <button class="tile tile-blue" data-goto="circulation">
             <div class="tile-icon"><svg><use href="#i-out"/></svg></div>
-            <div class="tile-body"><span class="tile-label">Books in Circulation</span><strong class="tile-value" id="t-issued">0</strong><span class="tile-foot">Issued, not yet returned</span></div>
+            <div class="tile-body"><span class="tile-label">Books Issued</span><strong class="tile-value" id="t-issued">0</strong><span class="tile-foot">Issued, not yet returned</span></div>
           </button>
           <button class="tile tile-green" data-goto="available">
             <div class="tile-icon"><svg><use href="#i-check"/></svg></div>
@@ -179,7 +174,7 @@
         <div class="toolbar">
           <div class="search">
             <svg><use href="#i-search"/></svg>
-            <input id="book-search" type="search" maxlength="100" placeholder="Search by accession no, description, LF or CAT…" />
+            <input id="book-search" type="search" maxlength="100" placeholder="Search by barcode no, description, LF or CAT…" />
           </div>
           <select id="book-filter-status" class="select">
             <option value="">All statuses</option>
@@ -203,8 +198,8 @@
             <div class="card scan-hero">
               <div class="scan-hero-icon"><svg><use href="#i-search"/></svg></div>
               <div class="scan-main">
-                <label for="issue-scan" class="scan-title">Enter the Accession Number</label>
-                <p class="scan-sub">Type the Accession Number of the book and press Enter.</p>
+                <label for="issue-scan" class="scan-title">Enter the Barcode No</label>
+                <p class="scan-sub">Type the Barcode No of the book and press Enter.</p>
                 <div class="scan-row">
                   <div class="scan-field">
                     <svg><use href="#i-search"/></svg>
@@ -229,8 +224,8 @@
             <div class="card scan-hero scan-hero-green">
               <div class="scan-hero-icon"><svg><use href="#i-search"/></svg></div>
               <div class="scan-main">
-                <label for="return-scan" class="scan-title">Enter the Accession Number</label>
-                <p class="scan-sub">Type the Accession Number of the book being returned and press Enter.</p>
+                <label for="return-scan" class="scan-title">Enter the Barcode No</label>
+                <p class="scan-sub">Type the Barcode No of the book being returned and press Enter.</p>
                 <div class="scan-row">
                   <div class="scan-field">
                     <svg><use href="#i-search"/></svg>
@@ -281,13 +276,13 @@
                 <option value="Returned">Returned on time</option>
                 <option value="Returned Late">Returned late</option>
               </select></label>
-            <label class="field inline"><span>User Name</span><input type="text" id="rf-user" maxlength="100" placeholder="Any user" /></label>
-            <label class="field inline"><span>Accession No</span><input type="text" id="rf-bookno" maxlength="50" placeholder="Any book" spellcheck="false" /></label>
+            <label class="field inline"><span>Name</span><input type="text" id="rf-user" maxlength="100" placeholder="Any user" /></label>
+            <label class="field inline"><span>Barcode No</span><input type="text" id="rf-bookno" maxlength="50" placeholder="Any book" spellcheck="false" /></label>
           </div>
           <div class="filter-set" data-for="overdue" hidden>
             <label class="field inline"><span>As on date</span><input type="date" id="rf-ason" /></label>
-            <label class="field inline"><span>User Name</span><input type="text" id="rf-ouser" maxlength="100" placeholder="Any user" /></label>
-            <label class="field inline"><span>Accession No</span><input type="text" id="rf-obookno" maxlength="50" placeholder="Any book" spellcheck="false" /></label>
+            <label class="field inline"><span>Name</span><input type="text" id="rf-ouser" maxlength="100" placeholder="Any user" /></label>
+            <label class="field inline"><span>Barcode No</span><input type="text" id="rf-obookno" maxlength="50" placeholder="Any book" spellcheck="false" /></label>
           </div>
           <div class="spacer"></div>
           <div class="report-actions">
@@ -314,7 +309,7 @@
       <section class="page" id="page-settings" hidden>
         <div class="settings-grid">
 
-            <form class="card" id="duration-form" novalidate>
+            <form method="post" class="card" id="duration-form" novalidate>
               <div class="card-head"><h3><svg><use href="#i-clock"/></svg>Default loan duration</h3></div>
               <p class="muted">Pre-filled on the Issue screen. The librarian can still change it for each issue.</p>
               <div class="field duration-field">
@@ -336,6 +331,32 @@
               </div>
               <p class="tiny muted" id="data-file"></p>
             </div>
+
+            <form method="post" class="card" id="autobackup-form" novalidate>
+              <div class="card-head"><h3><svg><use href="#i-db"/></svg>Automatic backup</h3></div>
+              <p class="muted">Saves a copy of all library data once a day — when the app starts and again when it is closed. The oldest copies are deleted automatically.</p>
+              <label class="check-row"><input type="checkbox" id="ab-enabled" /> <span>Back up automatically every day</span></label>
+              <div class="field">
+                <span>Backup folder</span>
+                <div class="inline-form">
+                  <input type="text" id="ab-folder" readonly />
+                  <button class="btn btn-soft" type="button" id="ab-choose">Change…</button>
+                </div>
+              </div>
+              <div class="field duration-field">
+                <span>Keep the last <em>*</em></span>
+                <div class="inline-form">
+                  <input type="number" id="ab-keep" min="1" max="365" step="1" />
+                  <span class="muted">backups</span>
+                  <button class="btn btn-primary" type="submit">Save</button>
+                </div>
+              </div>
+              <div class="form-actions start">
+                <button class="btn btn-ghost" type="button" id="ab-now">Back up now</button>
+                <button class="btn btn-ghost" type="button" id="ab-open">Open folder</button>
+              </div>
+              <p class="tiny muted" id="ab-status"></p>
+            </form>
 
           <div class="card flush users-card">
             <div class="users-head">

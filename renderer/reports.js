@@ -1,6 +1,9 @@
 'use strict';
 // Reports page: filters, table, and export to Excel / PDF.
-// Screen scripts share one global scope and load in order from index.html.
+// Used by: renderer/index.html, which loads it with <script src="reports.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Reports ================= */
 const DATE_BY_TEXT = { issue: 'issued', return: 'returned', due: 'due back' };

@@ -1,6 +1,9 @@
 'use strict';
 // App shell: state, page navigation, sign-in and first-run setup.
-// Screen scripts share one global scope and load in order from index.html.
+// Used by: renderer/index.html, which loads it with <script src="app.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= State & navigation ================= */
 const state = {
@@ -15,8 +18,8 @@ const state = {
 const PAGES = {
   dashboard: ['Dashboard', 'Live overview of the library collection'],
   books: ['Book Entry', 'Add, edit and search the book catalogue'],
-  issue: ['Issue Book', 'Enter the Accession Number, then the borrower details'],
-  return: ['Return Book', 'Enter the Accession Number to receive the book back'],
+  issue: ['Issue Book', 'Enter the Barcode No, then the borrower details'],
+  return: ['Return Book', 'Enter the Barcode No to receive the book back'],
   reports: ['Reports', 'View and export to Excel or PDF'],
   settings: ['Settings', 'Users, loan duration and data backup'],
 };
@@ -58,21 +61,52 @@ async function showLogin() {
   if ($('#login-password').hidePassword) $('#login-password').hidePassword();
   $('#login-error').hidden = true;
   clearFieldErrors($('#login-form'));
+  // Ready to type straight away; the checks below run while the librarian types.
+  if (!$('#login-form').hidden) $('#login-username').focus();
   // A new database has no accounts yet: ask for the first one instead of a sign-in.
   const setup = await window.api.setupNeeded();
+  // Signed in meanwhile: leave the screen alone.
+  if (state.user || $('#login-screen').hidden) return;
   const needsSetup = !!(setup.ok && setup.data);
-  $('#login-form').hidden = needsSetup;
-  $('#setup-form').hidden = !needsSetup;
-  if (needsSetup) {
+  // Server not reachable: say so straight away instead of waiting for a sign-in attempt.
+  if (!setup.ok) {
+    $('#login-error').textContent = setup.error;
+    $('#login-error').hidden = false;
+  }
+  if (needsSetup && $('#setup-form').hidden) {
+    $('#login-form').hidden = true;
+    $('#setup-form').hidden = false;
     $('#setup-form').reset();
     $('#setup-error').hidden = true;
     clearFieldErrors($('#setup-form'));
-    setTimeout(() => $('#setup-username').focus(), 50);
+    $('#setup-username').focus();
     return;
   }
-  const hint = await window.api.loginHint();
-  $('#login-hint').hidden = !(hint.ok && hint.data);
-  setTimeout(() => $('#login-username').focus(), 50);
+  if (!needsSetup && $('#login-form').hidden) {
+    $('#setup-form').hidden = true;
+    $('#login-form').hidden = false;
+    focusIfIdle($('#login-username'));
+  }
+  window.api.loginHint().then((hint) => {
+    if (!state.user) $('#login-hint').hidden = !(hint.ok && hint.data);
+  });
+}
+
+// Moves the cursor only if the librarian has not clicked or typed anywhere yet.
+function focusIfIdle(el) {
+  const active = document.activeElement;
+  if (!active || active === document.body) el.focus();
+}
+
+// Shows what the button is doing while the server answers ("Signing in…").
+function busyButton(btn, text) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = text;
+  return () => {
+    btn.disabled = false;
+    btn.textContent = label;
+  };
 }
 
 $('#setup-form').addEventListener('submit', async (e) => {
@@ -82,11 +116,9 @@ $('#setup-form').addEventListener('submit', async (e) => {
   const valid = validateFields([
     [$('#setup-username'), RULES.username],
     [password, (v) => (v ? RULES.newPassword(v) : 'Password is required.')],
-    [$('#setup-confirm'), (v) => (v === password.value ? '' : 'The passwords do not match.')],
   ]);
   if (!valid) return;
-  const btn = $('#setup-form button[type=submit]');
-  btn.disabled = true;
+  const done = busyButton($('#setup-form button[type=submit]'), 'Creating account…');
   try {
     const res = await window.api.setup({ username: $('#setup-username').value.trim(), password: password.value });
     if (!res.ok) {
@@ -99,7 +131,7 @@ $('#setup-form').addEventListener('submit', async (e) => {
     enterApp();
     toast(`Account “${res.data.user.username}” created. Welcome!`);
   } finally {
-    btn.disabled = false;
+    done();
   }
 });
 
@@ -112,8 +144,7 @@ $('#login-form').addEventListener('submit', async (e) => {
     return;
   }
   if (!validateFields([[$('#login-password'), (v) => (v ? '' : 'Enter your password.')]])) return;
-  const btn = $('#login-form button[type=submit]');
-  btn.disabled = true;
+  const done = busyButton($('#login-form button[type=submit]'), 'Signing in…');
   try {
     const res = await window.api.login({ username: $('#login-username').value, password: $('#login-password').value });
     if (!res.ok) {
@@ -129,7 +160,7 @@ $('#login-form').addEventListener('submit', async (e) => {
     state.settings = res.data.settings;
     enterApp();
   } finally {
-    btn.disabled = false;
+    done();
   }
 });
 

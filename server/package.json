@@ -1,0 +1,13 @@
+{
+  "name": "library-api",
+  "version": "1.0.0",
+  "description": "Library API server for Technical Library (version 1) and General Library (version 2)",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "mysql2": "^3.11.0"
+  }
+}

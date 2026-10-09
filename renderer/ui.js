@@ -1,7 +1,10 @@
 'use strict';
 // Shared screen helpers: escaping and safe HTML, suggestions, paging, password boxes,
 // field validation, calls to the main process, toasts and dialogs.
-// Screen scripts share one global scope and load in order from index.html.
+// Used by: renderer/index.html, which loads it with <script src="ui.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Helpers ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -331,7 +334,9 @@ function toast(message, kind = 'ok', actions = []) {
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
   const ic = kind === 'ok' ? 'check' : kind === 'err' ? 'alert' : 'clock';
-  setHtml(el, `${icon(ic)}<div class="t-main"><div>${esc(message)}</div>${
+  const title = kind === 'ok' ? 'Success' : kind === 'err' ? 'Could not complete' : 'Please note';
+  el.setAttribute('role', kind === 'err' ? 'alert' : 'status');
+  setHtml(el, `${icon(ic)}<div class="t-main"><div class="t-title">${title}</div><div>${esc(message)}</div>${
     actions.length ? `<div class="t-actions">${actions.map((a, i) => `<button data-i="${i}">${esc(a.label)}</button>`).join('')}</div>` : ''
   }</div>`);
   el.addEventListener('click', (e) => {

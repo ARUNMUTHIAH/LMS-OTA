@@ -12,7 +12,7 @@ const HEADER_SCAN_ROWS = 10; // a title row (e.g. "DORNIER AIRCRAFT PUBLICATION"
 
 // Accepted header spellings, compared after lower-casing and removing spaces/punctuation.
 const FIELDS = [
-  { key: 'book_no', label: 'Accession No', required: true, aliases: ['accessionno', 'accessionnumber', 'accession', 'accno', 'accnumber'] },
+  { key: 'book_no', label: 'Barcode No', required: true, aliases: ['barcodeno', 'barcodenumber', 'barcode', 'accessionno', 'accessionnumber', 'accession', 'accno', 'accnumber'] },
   { key: 'lf', label: 'LF', aliases: ['lf', 'lfno'] },
   { key: 'category', label: 'CAT', aliases: ['cat', 'category'] },
   {
@@ -89,7 +89,7 @@ async function readBookSheet(filePath) {
   }
   if (!headerRow) {
     throw new UserError(
-      'Could not find the header row. The first sheet must have the columns "Accession No" and "Description of Manual" ' +
+      'Could not find the header row. The first sheet must have the columns "Barcode No" and "Description of Manual" ' +
         '(plus optional LF, CAT, LOC, Rack). Download the template to see the expected layout.'
     );
   }
@@ -140,7 +140,7 @@ async function writeTemplate(filePath) {
   wb.creator = 'Technical Library - CGAS Chennai';
   const ws = wb.addWorksheet('Books', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
-    { header: 'Accession No', width: 16 },
+    { header: 'Barcode No', width: 16 },
     { header: 'LF', width: 12 },
     { header: 'CAT', width: 12 },
     { header: 'Description of Manual', width: 56 },
@@ -159,7 +159,7 @@ async function writeTemplate(filePath) {
   help.addRow(['Column', 'Rule']);
   styleHeader(help.getRow(1));
   [
-    ['Accession No *', 'Required. Must be unique (not already in the library, not repeated in the file). Letters, numbers and - / _ . only, no spaces. Max 50.'],
+    ['Barcode No *', 'Required. Must be unique (not already in the library, not repeated in the file). Letters, numbers and - / _ . only, no spaces. Max 50.'],
     ['LF', 'Optional. Max 30 characters, e.g. 001-06.'],
     ['CAT', 'Optional. Must contain letters, max 100, e.g. DOR-MM.'],
     ['Description of Manual *', 'Required. Max 200 characters.'],

@@ -1,12 +1,15 @@
 'use strict';
 // Issue Book and Return Book pages.
-// Screen scripts share one global scope and load in order from index.html.
+// Used by: renderer/index.html, which loads it with <script src="circulation.js">.
+// Not imported: the screen scripts are plain browser scripts that share one global scope and
+// load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
+// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Circulation ================= */
 function notFound(kind, bookNo) {
   const box = $(`#${kind}-result`);
   setHtml(box, `<div class="result"><div class="alert alert-danger">${icon('alert')}<div><strong>Book not found</strong>
-    No book with Accession Number “${esc(bookNo)}” exists in the catalogue.</div></div>
+    No book with Barcode No “${esc(bookNo)}” exists in the catalogue.</div></div>
     ${kind === 'issue' ? '<div class="form-actions start"><button class="btn btn-soft" data-addbook>' + icon('plus') + 'Add this book</button></div>' : ''}</div>`);
   const add = $('[data-addbook]', box);
   if (add) {
@@ -28,7 +31,7 @@ function issueBookHead(b) {
   return `<div class="sheet-book">
       <div class="sheet-book-icon">${icon('book')}</div>
       <div class="sheet-book-main">
-        <div class="sheet-accession">Accession No <span class="chip mono">${esc(b.book_no)}</span></div>
+        <div class="sheet-accession">Barcode No <span class="chip mono">${esc(b.book_no)}</span></div>
         <h3>${esc(b.name)}</h3>
       </div>
       ${badge(b.status)}
@@ -41,12 +44,12 @@ function circGuide(kind) {
     `<div class="guide-step"><span class="step">${n}</span><div><strong>${title}</strong><span>${text}</span></div></div>`;
   return kind === 'issue'
     ? `<div class="card issue-guide">
-        ${step(1, 'Enter the Accession Number', 'Type the Accession Number of the book above and press Enter.')}
+        ${step(1, 'Enter the Barcode No', 'Type the Barcode No of the book above and press Enter.')}
         ${step(2, 'Enter borrower details', 'Name of the person, loan days and any remarks.')}
         ${step(3, 'Issue the book', 'The issue date and due date are set automatically.')}
       </div>`
     : `<div class="card issue-guide guide-green">
-        ${step(1, 'Enter the Accession Number', 'Type the Accession Number of the returned book above and press Enter.')}
+        ${step(1, 'Enter the Barcode No', 'Type the Barcode No of the returned book above and press Enter.')}
         ${step(2, 'Check the details', 'See who borrowed it, the due date and whether it is late.')}
         ${step(3, 'Return the book', 'Confirm who returned it. The book becomes available again.')}
       </div>`;
@@ -98,7 +101,7 @@ function recordsShell(kind) {
         <p class="muted" data-caption></p></div>
       <div class="records-tools">
         <div class="range-chips" role="group" aria-label="Period">${RECORD_RANGES.map(([v, l]) => `<button class="range-chip ${v === st.range ? 'on' : ''}" data-range="${v}">${l}</button>`).join('')}</div>
-        <div class="search"><svg><use href="#i-search"/></svg><input data-q type="search" maxlength="100" placeholder="Search accession no, description or name…" /></div>
+        <div class="search"><svg><use href="#i-search"/></svg><input data-q type="search" maxlength="100" placeholder="Search barcode no, description or name…" /></div>
       </div>
     </div>
     <div class="table-wrap" data-table></div>
@@ -148,8 +151,8 @@ function renderRecords(kind) {
   const { pages, start, slice } = pageSlice(st.rows, st);
   const dash = '<span class="muted">—</span>';
   const head = issue
-    ? '<th class="idx">#</th><th>Accession No</th><th>Description</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Remarks</th>'
-    : '<th class="idx">#</th><th>Accession No</th><th>Description</th><th>Issued To</th><th>Returned By</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th>';
+    ? '<th class="idx">#</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Remarks</th>'
+    : '<th class="idx">#</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Returned By</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th>';
   const row = (r, i) =>
     issue
       ? `<tr><td class="idx muted">${start + i + 1}</td><td class="mono">${esc(r.book_no)}</td><td class="strong wrap">${esc(r.book_name)}</td>
@@ -173,7 +176,7 @@ async function lookup(kind) {
   const input = $(`#${kind}-scan`);
   const bookNo = input.value.trim();
   if (!bookNo) {
-    showFieldError(input, 'Enter an Accession Number.');
+    showFieldError(input, 'Enter a Barcode No.');
     input.focus();
     return;
   }
@@ -212,11 +215,14 @@ function renderIssue({ book, overdueDays }) {
   const today = isoToday();
   const dur = state.settings.defaultDuration || 14;
   setHtml(box, `<div class="card flush issue-sheet">${issueBookHead(book)}
-    <form id="issue-form" autocomplete="off" novalidate>
+    <form method="post" id="issue-form" autocomplete="off" novalidate>
       <div class="sheet-body">
         <div class="sheet-title">${icon('user')}Borrower details</div>
         <div class="issue-fields">
-          <label class="field"><span>User Name <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" placeholder="Start typing — names used before are suggested" /></label>
+          <label class="field"><span>Name <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" placeholder="Start typing — names used before are suggested" /></label>
+          <label class="field"><span>Rank</span><input name="rank" maxlength="${LIMITS.detail}" /></label>
+          <label class="field"><span>Number</span><input name="number" maxlength="${LIMITS.detail}" spellcheck="false" /></label>
+          <label class="field"><span>Dept</span><input name="dept" maxlength="${LIMITS.detail}" /></label>
           <label class="field"><span>Loan period (days) <em>*</em></span><input name="duration" type="number" min="1" max="365" step="1" value="${dur}" /></label>
         </div>
         <label class="field"><span>Remarks</span><textarea name="remarks" rows="2" maxlength="${LIMITS.remarks}" placeholder="Optional"></textarea></label>
@@ -250,7 +256,10 @@ function renderIssue({ book, overdueDays }) {
     e.preventDefault();
     errBox.hidden = true;
     const valid = validateFields([
-      [form.userName, (v) => RULES.person(v, 'User Name')],
+      [form.userName, (v) => RULES.person(v, 'Name')],
+      [form.rank, (v) => RULES.detail(v, 'Rank')],
+      [form.number, (v) => RULES.detail(v, 'Number')],
+      [form.dept, (v) => RULES.detail(v, 'Dept')],
       [form.duration, RULES.duration],
       [form.remarks, RULES.remarks],
     ]);
@@ -259,7 +268,13 @@ function renderIssue({ book, overdueDays }) {
     const duration = Number(form.duration.value);
     const btn = $('button[type=submit]', form);
     btn.disabled = true;
-    const res = await window.api.issueBook({ bookNo: book.book_no, userName, duration, remarks: form.remarks.value });
+    const res = await window.api.issueBook({
+      bookNo: book.book_no,
+      userName,
+      rank: form.rank.value,
+      number: form.number.value,
+      dept: form.dept.value,
+      duration, remarks: form.remarks.value });
     btn.disabled = false;
     if (!res.ok) {
       errBox.textContent = res.error;
@@ -284,11 +299,14 @@ function renderReturn({ book, overdueDays }) {
   const late = overdueDays > 0;
   const info = (label, value, cls = '') => `<div class="info"><span>${label}</span><strong class="${cls}">${value}</strong></div>`;
   setHtml(box, `<div class="card flush issue-sheet">${issueBookHead(book)}
-    <form id="return-form" autocomplete="off" novalidate>
+    <form method="post" id="return-form" autocomplete="off" novalidate>
       <div class="sheet-body">
         <div class="sheet-title">${icon('user')}Issue details</div>
         <div class="info-grid">
           ${info('Issued to', esc(book.issue_user))}
+          ${info('Rank', esc(book.issue_rank) || '—')}
+          ${info('Number', esc(book.issue_number) || '—')}
+          ${info('Dept', esc(book.issue_dept) || '—')}
           ${info('Issue date', esc(fmtDate(book.issue_date)))}
           ${info('Due date', esc(fmtDate(book.due_date)), late ? 'hl' : '')}
           ${info('Loan period', plural(book.duration, 'day'))}
@@ -301,7 +319,7 @@ function renderReturn({ book, overdueDays }) {
         }
         <div class="sheet-title sheet-title-gap">${icon('in')}Return details</div>
         <div class="issue-fields">
-          <label class="field"><span>Returned By (User Name) <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" value="${esc(book.issue_user)}" /></label>
+          <label class="field"><span>Name <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" value="${esc(book.issue_user)}" /></label>
           <div class="field"><span>Return date</span><div class="due-preview">${icon('calendar')}<span>${esc(fmtDate(isoToday()))}</span></div></div>
         </div>
         <label class="field"><span>Remarks</span><textarea name="remarks" rows="2" maxlength="${LIMITS.remarks}" placeholder="e.g. book condition"></textarea></label>
@@ -322,7 +340,7 @@ function renderReturn({ book, overdueDays }) {
     e.preventDefault();
     errBox.hidden = true;
     const valid = validateFields([
-      [form.userName, (v) => RULES.person(v, 'Returned By')],
+      [form.userName, (v) => RULES.person(v, 'Name')],
       [form.remarks, RULES.remarks],
     ]);
     if (!valid) return;

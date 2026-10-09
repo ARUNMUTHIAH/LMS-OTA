@@ -15,13 +15,13 @@ const DEFAULT_USERNAME = 'admin';
 
 // Fixed queries on the issues table. Columns are listed so callers get exactly these fields.
 const ISSUE_SQL = {
-  byId: `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+  byId: `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at
          FROM issues WHERE id = ?`,
-  issuedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+  issuedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at
          FROM issues WHERE issue_date = ? ORDER BY id DESC`,
-  returnedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+  returnedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at
          FROM issues WHERE return_date = ? ORDER BY returned_at DESC`,
 };
@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS issues (
   book_no         TEXT NOT NULL,
   book_name       TEXT NOT NULL,
   issue_user      TEXT NOT NULL,
+  issue_rank      TEXT NOT NULL DEFAULT '',
+  issue_number    TEXT NOT NULL DEFAULT '',
+  issue_dept      TEXT NOT NULL DEFAULT '',
   issue_date      TEXT NOT NULL,
   duration        INTEGER NOT NULL,
   due_date        TEXT NOT NULL,
@@ -133,6 +136,10 @@ class LibraryDB {
       if (!cols.includes(col)) this.db.run(`ALTER TABLE books ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
     }
     const userCols = this.all('PRAGMA table_info(users)').map((c) => c.name);
+    const issueCols = this.all('PRAGMA table_info(issues)').map((c) => c.name);
+    for (const col of ['issue_rank', 'issue_number', 'issue_dept']) {
+      if (!issueCols.includes(col)) this.db.run(`ALTER TABLE issues ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+    }
     if (!userCols.includes('active')) this.db.run('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
   }
 
@@ -360,7 +367,7 @@ class LibraryDB {
   // ---------- Books ----------
   _bookSelect() {
     return `SELECT b.id, b.book_no, b.name, b.author, b.publisher, b.category, b.lf, b.location, b.rack, b.created_at, b.updated_at,
-              i.id AS issue_id, i.issue_user, i.issue_date, i.due_date, i.duration, i.issue_remarks,
+              i.id AS issue_id, i.issue_user, i.issue_rank, i.issue_number, i.issue_dept, i.issue_date, i.due_date, i.duration, i.issue_remarks,
               CASE WHEN i.id IS NULL THEN 'Available' ELSE 'Issued' END AS status
             FROM books b
             LEFT JOIN issues i ON i.book_id = b.id AND i.return_date IS NULL`;
@@ -428,7 +435,7 @@ class LibraryDB {
 
     const dup = this.get('SELECT id FROM books WHERE book_no = ? COLLATE NOCASE', [book.book_no]);
     if (dup && dup.id !== book.id) {
-      throw new UserError(`Accession Number "${book.book_no}" already exists. Each book must have a unique number.`);
+      throw new UserError(`Barcode No "${book.book_no}" already exists. Each book must have a unique number.`);
     }
 
     return this._transaction(() => {
@@ -484,9 +491,9 @@ class LibraryDB {
       ].filter(Boolean);
       const key = book.book_no.toLowerCase();
       if (key) {
-        if (seen.has(key)) messages.push(`Accession Number "${book.book_no}" is repeated (first seen in row ${seen.get(key)}).`);
+        if (seen.has(key)) messages.push(`Barcode No "${book.book_no}" is repeated (first seen in row ${seen.get(key)}).`);
         else seen.set(key, r.rowNumber);
-        if (existing.has(key)) messages.push(`Accession Number "${book.book_no}" already exists in the library.`);
+        if (existing.has(key)) messages.push(`Barcode No "${book.book_no}" already exists in the library.`);
       }
       if (messages.length) errors.push({ rowNumber: r.rowNumber, book_no: book.book_no, messages });
       else ready.push(book);
@@ -535,22 +542,29 @@ class LibraryDB {
     return { book, overdueDays, today: t };
   }
 
-  issueBook({ bookNo, userName, duration, remarks }) {
+  issueBook({ bookNo, userName, rank = '', number = '', dept = '', duration, remarks }) {
     const book = this.getBookByNumber(bookNo);
-    if (!book) throw new UserError(`No book found with number "${clean(bookNo)}".`);
+    if (!book) throw new UserError(`No book found with Barcode No "${clean(bookNo)}".`);
     if (book.issue_id) {
       throw new UserError(`Book "${book.book_no}" is already issued to ${book.issue_user} (due ${display(book.due_date)}).`);
     }
-    check(checks.person(userName, 'User Name'), checks.duration(duration), checks.remarks(remarks));
+    check(
+      checks.person(userName, 'Name'),
+      checks.detail(rank, 'Rank'),
+      checks.detail(number, 'Number'),
+      checks.detail(dept, 'Dept'),
+      checks.duration(duration),
+      checks.remarks(remarks)
+    );
     const user = clean(userName);
     const days = Number(duration);
     const issueDate = today();
     const dueDate = addDays(issueDate, days);
     return this._transaction(() => {
       this.db.run(
-        `INSERT INTO issues (book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [book.id, book.book_no, book.name, user, issueDate, days, dueDate, clean(remarks)]
+        `INSERT INTO issues (book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [book.id, book.book_no, book.name, user, clean(rank), clean(number), clean(dept), issueDate, days, dueDate, clean(remarks)]
       );
       return this.get(ISSUE_SQL.byId, [this._lastId()]);
     });
@@ -558,9 +572,9 @@ class LibraryDB {
 
   returnBook({ bookNo, userName, remarks }) {
     const book = this.getBookByNumber(bookNo);
-    if (!book) throw new UserError(`No book found with number "${clean(bookNo)}".`);
+    if (!book) throw new UserError(`No book found with Barcode No "${clean(bookNo)}".`);
     if (!book.issue_id) throw new UserError(`Book "${book.book_no}" is not currently issued.`);
-    check(checks.person(userName, 'Returned By'), checks.remarks(remarks));
+    check(checks.person(userName, 'Name'), checks.remarks(remarks));
     const user = clean(userName);
     const returnDate = today();
     const late = returnDate > book.due_date ? 1 : 0;
@@ -640,7 +654,7 @@ class LibraryDB {
     const params = [asOn, asOn, asOn];
     this._textFilters(where, params, { userName, bookNo, q });
     return this.all(
-      `SELECT book_no, book_name, issue_user, issue_date, due_date, return_date, issue_remarks,
+      `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, due_date, return_date, issue_remarks,
               CAST(julianday(?) - julianday(due_date) AS INTEGER) AS days_overdue
          FROM issues
         WHERE ${where.join(' AND ')}
@@ -720,7 +734,7 @@ class LibraryDB {
     this._textFilters(where, params, { userName, bookNo, q });
     const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
     return this.all(
-      `SELECT id, book_id, book_no, book_name, issue_user, issue_date, duration, due_date, issue_remarks,
+      `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at,
               CASE
                    WHEN return_date IS NULL AND due_date < ? THEN 'Overdue'
@@ -736,6 +750,30 @@ class LibraryDB {
   // ---------- Backup / restore ----------
   exportBytes() {
     return Buffer.from(this.db.export());
+  }
+
+  // All rows of the four tables (the server sends the same shape for a backup).
+  exportData() {
+    const data = {};
+    for (const t of ['books', 'issues', 'users', 'settings']) data[t] = this.all(`SELECT * FROM ${t} ORDER BY rowid`);
+    return data;
+  }
+
+  // Replaces everything with the given rows: used to turn the server's data into a backup file.
+  replaceData(data) {
+    this._transaction(() => {
+      for (const t of ['issues', 'books', 'users', 'settings']) this.db.run(`DELETE FROM ${t}`);
+      for (const t of ['books', 'issues', 'users', 'settings']) {
+        const cols = this.all(`PRAGMA table_info(${t})`).map((c) => c.name);
+        for (const row of (data && data[t]) || []) {
+          const keys = cols.filter((c) => row[c] !== undefined);
+          this.db.run(
+            `INSERT INTO ${t} (${keys.map((k) => `"${k}"`).join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`,
+            keys.map((k) => row[k])
+          );
+        }
+      }
+    });
   }
 
   restoreFrom(bytes) {

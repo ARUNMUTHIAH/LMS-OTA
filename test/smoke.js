@@ -34,7 +34,7 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(db.getSettings().defaultDuration, 14);
 
   // Book entry: mandatory fields, uniqueness
-  expectUserError(() => db.saveBook({ book_no: '', name: 'x' }), /Accession Number is required/);
+  expectUserError(() => db.saveBook({ book_no: '', name: 'x' }), /Barcode No is required/);
   expectUserError(() => db.saveBook({ book_no: 'B1', name: '' }), /Description of Manual is required/);
   expectUserError(() => db.saveBook({ book_no: 'A 1', name: 'x' }), /no spaces/);
   expectUserError(() => db.saveBook({ book_no: 'A1', name: 'x', category: '12345' }), /must contain letters/);
@@ -43,7 +43,7 @@ const expectUserError = (fn, pattern) =>
   const b1 = db.saveBook({ book_no: 'OTA-001', lf: '001-06', category: 'DOR-MM', name: 'Airplane Maintenance Manual Vol-I (CG-780)', location: 'B2', rack: '6' });
   db.saveBook({ book_no: 'OTA-002', lf: '007-01', category: 'DOR-SMM', name: 'Wings of Fire', location: 'B2', rack: '1' });
   db.saveBook({ book_no: 'OTA-003', lf: '002-06', category: 'Science', name: 'Physics Vol 1' });
-  expectUserError(() => db.saveBook({ book_no: 'ota-001', name: 'Dup' }), /Accession Number "ota-001" already exists/);
+  expectUserError(() => db.saveBook({ book_no: 'ota-001', name: 'Dup' }), /Barcode No "ota-001" already exists/);
 
   // Edit + search
   db.saveBook({ ...b1, id: b1.id, rack: '7' });
@@ -60,13 +60,17 @@ const expectUserError = (fn, pattern) =>
 
   // Issue
   expectUserError(() => db.issueBook({ bookNo: 'NOPE', userName: 'A', duration: 7 }), /No book found/);
-  expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: '', duration: 7 }), /User Name is required/);
+  expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: '', duration: 7 }), /Name is required/);
   expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi', duration: 0 }), /Duration/);
   expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi', duration: '2.5' }), /whole number/);
   expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi', duration: 400 }), /between 1 and 365/);
   expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: '999', duration: 7 }), /must contain letters/);
   expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi<script>', duration: 7 }), /can contain only/);
   expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi', duration: 7, remarks: 'r'.repeat(251) }), /250 characters/);
+  // Rank / Number / Dept: optional, letters and numbers allowed.
+  expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi', rank: 'Lt<b>', duration: 7 }), /Rank can contain only/);
+  expectUserError(() => db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi', dept: 'd'.repeat(51), duration: 7 }), /Dept must be 50/);
+  assert.strictEqual(require('../renderer/rules').checks.detail('Lt Cdr (Air Ops) & Tech-2', 'Rank'), '');
   const iss = db.issueBook({ bookNo: 'OTA-001', userName: 'Ravi Kumar', duration: 14, remarks: 'New copy' });
   assert.strictEqual(iss.issue_date, t);
   assert.strictEqual(iss.due_date, addDays(t, 14));
@@ -102,14 +106,14 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(db.overdueList(addDays(t, -1)).length, 1);
 
   // Reports
-  const rb = reports.buildReport(db, 'books', { status: 'Available' });
+  const rb = await reports.buildReport(db, 'books', { status: 'Available' });
   assert.strictEqual(rb.rows.length, 3);
-  assert.strictEqual(reports.buildReport(db, 'books', { category: 'Science' }).rows.length, 1);
-  const rc = reports.buildReport(db, 'circulation', { userName: 'priya' });
+  assert.strictEqual((await reports.buildReport(db, 'books', { category: 'Science' })).rows.length, 1);
+  const rc = await reports.buildReport(db, 'circulation', { userName: 'priya' });
   assert.strictEqual(rc.rows.length, 1);
   assert.strictEqual(rc.rows[0].status, 'Returned Late');
   assert.ok(rc.rows[0].remarks.includes('Cover torn'));
-  assert.strictEqual(reports.buildReport(db, 'circulation', { from: t, to: t }).rows.length, 1);
+  assert.strictEqual((await reports.buildReport(db, 'circulation', { from: t, to: t })).rows.length, 1);
   // Circulation filters: which date the range applies to, status, accession number, user, free text.
   assert.strictEqual(db.circulationList({ dateBy: 'return', from: t, to: t }).length, 2, 'both books were returned today');
   assert.strictEqual(db.circulationList({ dateBy: 'due', to: addDays(t, -1) }).length, 1, 'only OTA-002 was due before today');
@@ -121,26 +125,26 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(db.circulationList({ q: 'kumar' }).length, 1, 'search covers names');
   expectUserError(() => db.circulationList({ dateBy: 'nope' }), /Unknown date/);
   expectUserError(() => db.circulationList({ status: 'nope' }), /Unknown status/);
-  assert.match(reports.buildReport(db, 'circulation', { dateBy: 'return', from: t, to: t }).filterText, /Return date/);
+  assert.match((await reports.buildReport(db, 'circulation', { dateBy: 'return', from: t, to: t })).filterText, /Return date/);
   assert.strictEqual(db.overdueList(addDays(t, -1), { userName: 'priya' }).length, 1);
   assert.strictEqual(db.overdueList(addDays(t, -1), { userName: 'ravi' }).length, 0);
   assert.strictEqual(db.overdueList(addDays(t, -1), { bookNo: 'OTA-002' }).length, 1);
   assert.ok(db.shelfValues().categories.includes('Science'));
-  assert.strictEqual(reports.buildReport(db, 'books', { q: 'physics' }).rows.length, 1, 'report search');
-  expectUserError(() => reports.buildReport(db, 'circulation', { from: t, to: addDays(t, -1) }), /From/);
+  assert.strictEqual((await reports.buildReport(db, 'books', { q: 'physics' })).rows.length, 1, 'report search');
+  await assert.rejects(reports.buildReport(db, 'circulation', { from: t, to: addDays(t, -1) }), (e) => e instanceof UserError && /From/.test(e.message));
   const xlsx = path.join(dir, 'r.xlsx');
   await reports.toExcel(db, 'circulation', {}, xlsx);
   assert.ok(fs.statSync(xlsx).size > 4000, 'excel written');
   const xwb = new (require('exceljs').Workbook)();
   await xwb.xlsx.readFile(xlsx);
   assert.strictEqual(xwb.worksheets[0].getCell(1, 1).value, 'Technical Library - CGAS Chennai', 'library name heads the Excel report');
-  assert.ok(reports.toHtml(db, 'books', {}).includes('Technical Library - CGAS Chennai'), 'library name heads the PDF report');
-  assert.ok(reports.toHtml(db, 'overdue', { asOn: addDays(t, -1) }).includes('Wings of Fire'));
+  assert.ok((await reports.toHtml(db, 'books', {})).includes('Technical Library - CGAS Chennai'), 'library name heads the PDF report');
+  assert.ok((await reports.toHtml(db, 'overdue', { asOn: addDays(t, -1) })).includes('Wings of Fire'));
 
   // Delete now that it is returned; history kept
   db.deleteBook(b1.id);
   assert.strictEqual(db.dashboard().total, 2);
-  assert.strictEqual(reports.buildReport(db, 'circulation', {}).rows.length, 2);
+  assert.strictEqual((await reports.buildReport(db, 'circulation', {})).rows.length, 2);
 
   // Credentials
   expectUserError(() => db.changeCredentials(1, { currentPassword: 'bad', newPassword: 'secret1' }), /incorrect/);
@@ -191,7 +195,7 @@ const expectUserError = (fn, pattern) =>
   assert.deepStrictEqual(db.listUsers().map((u) => u.username), ['librarian']);
 
   // Exports show "-" for empty cells
-  assert.ok(reports.toHtml(db, 'books', {}).includes('<td class="">-</td>'), 'blank LF/LOC/Rack print as -');
+  assert.ok((await reports.toHtml(db, 'books', {})).includes('<td class="">-</td>'), 'blank LF/LOC/Rack print as -');
 
   // Persistence: reopen from disk
   await db.flush(); // saves are written in the background
@@ -215,7 +219,7 @@ const expectUserError = (fn, pattern) =>
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Sheet1');
   ws.addRow(['DORNIER AIRCRAFT PUBLICATION']); // title row above the header
-  ws.addRow(['SL', 'Accession No', 'LF', 'CAT', 'DESCRIPTIONS OF MANUAL', 'LOC', 'RACK']);
+  ws.addRow(['SL', 'Barcode No', 'LF', 'CAT', 'DESCRIPTIONS OF MANUAL', 'LOC', 'RACK']);
   ws.addRow([1, 'IMP-001', '001-06', 'DOR-MM', 'AIRPLANE MAINTENANCE MANUAL VOL-I (CG-780)', 'B2', 6]);
   ws.addRow([2, 'IMP-002', '001-07', 'DOR-MM', 'AIRPLANE MAINTENANCE MANUAL VOL-I (CG-786)', 'B2', 6]);
   ws.addRow([]); // blank row is skipped
