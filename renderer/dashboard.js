@@ -3,7 +3,7 @@
 // Used by: renderer/index.html, which loads it with <script src="dashboard.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Dashboard ================= */
 function animateNumber(el, to) {
@@ -107,7 +107,7 @@ async function showOverdueModal() {
     const { pages, start, slice } = pageSlice(shown, st);
     $('[data-caption]', m.el).textContent = q ? `${shown.length} of ${rows.length} match` : 'Most overdue first';
     setHtml($('[data-table]', m.el), slice.length
-      ? `<table class="table"><thead><tr><th class="idx">#</th><th>Barcode No</th><th>Description</th><th>Borrower</th><th>Issue Date</th><th>Due Date</th><th class="num">Days Overdue</th></tr></thead><tbody>
+      ? `<table class="table"><thead><tr><th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Borrower</th><th>Issue Date</th><th>Due Date</th><th class="num">Days Overdue</th></tr></thead><tbody>
         ${slice
           .map(
             (r, i) => `<tr><td class="idx muted">${start + i + 1}</td><td class="mono">${esc(r.book_no)}</td><td class="strong wrap">${esc(r.book_name)}</td><td>${esc(r.issue_user)}</td>

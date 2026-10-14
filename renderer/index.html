@@ -43,8 +43,35 @@
     </defs>
   </svg>
 
+  <!-- ============ LICENSE ============ -->
+  <section id="license-screen" class="login-screen" hidden>
+    <div class="login-panel">
+      <div class="login-brand">
+        <img src="assets/icon.png" alt="" />
+        <div><strong>Technical Library - CGAS Chennai</strong><span>Library Management System</span></div>
+      </div>
+      <form method="post" id="license-form" class="login-card" autocomplete="off" novalidate>
+        <h2 id="license-title">Register License</h2>
+        <div id="license-state" class="license-state"></div>
+        <label class="field">
+          <span>Client ID</span>
+          <input id="license-client" type="text" maxlength="50" spellcheck="false" />
+        </label>
+        <div id="license-error" class="form-error" hidden></div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block" id="license-request-btn">Register License</button>
+        <div class="license-actions">
+          <button type="button" class="btn btn-soft btn-block" id="license-load-btn"><svg><use href="#i-file"/></svg>Load License File</button>
+          <button type="button" class="btn btn-ghost btn-block" id="license-recheck-btn">Check Again</button>
+          <button type="button" class="btn btn-ghost btn-block" id="license-back-btn" hidden>Back to Sign in</button>
+        </div>
+      </form>
+      <div class="login-foot"><svg><use href="#i-lock"/></svg>A valid license is required to use this software</div>
+      <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>Library Management System &copy; 2026 2CQR</a></div>
+    </div>
+  </section>
+
   <!-- ============ LOGIN ============ -->
-  <section id="login-screen" class="login-screen">
+  <section id="login-screen" class="login-screen" hidden>
     <div class="login-panel">
       <div class="login-brand">
         <img src="assets/icon.png" alt="" />
@@ -82,6 +109,7 @@
         <button type="submit" class="btn btn-primary btn-lg btn-block">Create account</button>
       </form>
       <div class="login-foot"><svg><use href="#i-lock"/></svg>Data is kept on the library server</div>
+      <div id="db-fix" class="login-foot" hidden><a href="#" id="db-fix-link">Change database connection</a></div>
       <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>Library Management System &copy; 2026 2CQR</a></div>
     </div>
   </section>
@@ -199,7 +227,7 @@
               <div class="scan-hero-icon"><svg><use href="#i-search"/></svg></div>
               <div class="scan-main">
                 <label for="issue-scan" class="scan-title">Enter the Barcode No</label>
-                <p class="scan-sub">Type the Barcode No of the book and press Enter.</p>
+                <p class="scan-sub">Start typing the Barcode No — matching available books are suggested. Pick one, or press Enter.</p>
                 <div class="scan-row">
                   <div class="scan-field">
                     <svg><use href="#i-search"/></svg>
@@ -225,7 +253,7 @@
               <div class="scan-hero-icon"><svg><use href="#i-search"/></svg></div>
               <div class="scan-main">
                 <label for="return-scan" class="scan-title">Enter the Barcode No</label>
-                <p class="scan-sub">Type the Barcode No of the book being returned and press Enter.</p>
+                <p class="scan-sub">Start typing the Barcode No — matching issued books are suggested. Pick one, or press Enter.</p>
                 <div class="scan-row">
                   <div class="scan-field">
                     <svg><use href="#i-search"/></svg>
@@ -287,8 +315,8 @@
           <div class="spacer"></div>
           <div class="report-actions">
             <button class="btn btn-ghost" id="rep-reset" title="Clear all filters"><svg><use href="#i-x"/></svg>Reset</button>
-            <button class="btn btn-ghost" id="rep-excel"><svg><use href="#i-sheet"/></svg>Excel</button>
-            <button class="btn btn-ghost" id="rep-pdf"><svg><use href="#i-file"/></svg>PDF</button>
+            <button class="btn btn-ghost" id="rep-excel" disabled title="No data to export"><svg><use href="#i-sheet"/></svg>Excel</button>
+            <button class="btn btn-ghost" id="rep-pdf" disabled title="No data to export"><svg><use href="#i-file"/></svg>PDF</button>
           </div>
           <div class="filter-hint" id="rf-hint"></div>
         </div>
@@ -309,54 +337,96 @@
       <section class="page" id="page-settings" hidden>
         <div class="settings-grid">
 
-            <form method="post" class="card" id="duration-form" novalidate>
-              <div class="card-head"><h3><svg><use href="#i-clock"/></svg>Default loan duration</h3></div>
-              <p class="muted">Pre-filled on the Issue screen. The librarian can still change it for each issue.</p>
-              <div class="field duration-field">
-                <span>Default duration <em>*</em></span>
-                <div class="inline-form">
-                  <input type="number" id="set-duration" min="1" max="365" step="1" />
-                  <span class="muted">days</span>
-                  <button class="btn btn-primary" type="submit">Save</button>
-                </div>
+          <form method="post" class="card settings-card" id="duration-form" novalidate>
+            <div class="card-head"><h3><svg><use href="#i-clock"/></svg>Default loan duration</h3></div>
+            <p class="muted">Pre-filled on the Issue screen. The librarian can still change it for each issue.</p>
+            <div class="field">
+              <span>Default duration <em>*</em></span>
+              <div class="inline-form">
+                <input type="number" id="set-duration" min="1" max="365" step="1" />
+                <span class="muted">days</span>
               </div>
-            </form>
-
-            <div class="card">
-              <div class="card-head"><h3><svg><use href="#i-db"/></svg>Backup &amp; restore</h3></div>
-              <p class="muted">Keep a copy of all library data on a USB drive. Restoring replaces the current data with the backup.</p>
-              <div class="form-actions start">
-                <button class="btn btn-soft" id="backup-btn">Create backup</button>
-                <button class="btn btn-ghost danger" id="restore-btn">Restore from backup</button>
-              </div>
-              <p class="tiny muted" id="data-file"></p>
             </div>
+            <div class="card-foot">
+              <button class="btn btn-primary" type="submit">Save</button>
+            </div>
+          </form>
 
-            <form method="post" class="card" id="autobackup-form" novalidate>
-              <div class="card-head"><h3><svg><use href="#i-db"/></svg>Automatic backup</h3></div>
-              <p class="muted">Saves a copy of all library data once a day — when the app starts and again when it is closed. The oldest copies are deleted automatically.</p>
-              <label class="check-row"><input type="checkbox" id="ab-enabled" /> <span>Back up automatically every day</span></label>
-              <div class="field">
-                <span>Backup folder</span>
-                <div class="inline-form">
-                  <input type="text" id="ab-folder" readonly />
-                  <button class="btn btn-soft" type="button" id="ab-choose">Change…</button>
-                </div>
+          <form method="post" class="card settings-card" id="return-rule-form" novalidate>
+            <div class="card-head"><h3><svg><use href="#i-user"/></svg>Borrower on return</h3></div>
+            <p class="muted">Choose whether a book issued to one person may be returned by another person.</p>
+            <div class="field">
+              <span>Who can return a book</span>
+              <div class="choice-list" role="radiogroup" aria-label="Who can return a book">
+                <label class="choice"><input type="radio" name="returnBy" value="any" />
+                  <span><strong>Allow another person</strong><small>The name on the Return screen can be changed to whoever brings the book back.</small></span></label>
+                <label class="choice"><input type="radio" name="returnBy" value="borrower" />
+                  <span><strong>Only the borrower</strong><small>The name is fixed to the person the book was issued to.</small></span></label>
               </div>
-              <div class="field duration-field">
-                <span>Keep the last <em>*</em></span>
-                <div class="inline-form">
-                  <input type="number" id="ab-keep" min="1" max="365" step="1" />
-                  <span class="muted">backups</span>
-                  <button class="btn btn-primary" type="submit">Save</button>
-                </div>
+            </div>
+            <div class="card-foot">
+              <button class="btn btn-primary" type="submit">Save</button>
+            </div>
+          </form>
+
+          <div class="card settings-card">
+            <div class="card-head"><h3><svg><use href="#i-db"/></svg>Backup &amp; restore</h3></div>
+            <p class="muted">Save a copy of all library data to a file whenever you like — for example on a USB drive. Restoring replaces the current data with the backup.</p>
+            <div class="field">
+              <span>Library database</span>
+              <p class="data-file" id="data-file"></p>
+            </div>
+            <div class="card-foot">
+              <button class="btn btn-ghost danger left" id="restore-btn">Restore from backup</button>
+              <button class="btn btn-primary" id="backup-btn"><svg><use href="#i-db"/></svg>Create backup</button>
+            </div>
+          </div>
+
+          <form method="post" class="card settings-card" id="autobackup-form" novalidate>
+            <div class="card-head"><h3><svg><use href="#i-db"/></svg>Automatic backup</h3><span class="pill pill-indigo">Rotational backup</span></div>
+            <p class="muted">Rotational backup: one copy of all library data is saved each day — when the app starts and again when it is closed. Only the latest copies are kept (10 days by default); when a new day's copy is made, the oldest one is deleted automatically.</p>
+            <label class="check-row"><input type="checkbox" id="ab-enabled" /> <span>Back up automatically every day</span></label>
+            <div class="field">
+              <span>Backup folder</span>
+              <div class="inline-form">
+                <input type="text" id="ab-folder" readonly />
+                <button class="btn btn-soft" type="button" id="ab-choose">Change…</button>
               </div>
-              <div class="form-actions start">
-                <button class="btn btn-ghost" type="button" id="ab-now">Back up now</button>
-                <button class="btn btn-ghost" type="button" id="ab-open">Open folder</button>
+            </div>
+            <div class="field">
+              <span>Rotation — keep the latest <em>*</em></span>
+              <div class="inline-form">
+                <input type="number" id="ab-keep" min="1" max="365" step="1" />
+                <span class="muted">daily backups (older ones are deleted)</span>
               </div>
-              <p class="tiny muted" id="ab-status"></p>
-            </form>
+            </div>
+            <p class="tiny muted ab-status" id="ab-status"></p>
+            <div class="card-foot">
+              <button class="btn btn-ghost" type="button" id="ab-now">Back up now</button>
+              <button class="btn btn-ghost left" type="button" id="ab-open">Open folder</button>
+              <button class="btn btn-primary" type="submit">Save</button>
+            </div>
+          </form>
+
+          <div class="card settings-card span-all" id="dbconn-card">
+            <div class="card-head"><h3><svg><use href="#i-db"/></svg>Database connection</h3><span class="pill" id="dbconn-source"></span></div>
+            <p class="muted">The MySQL database where this library's data is kept. If the database moves to another server, change it here — no change to the program is needed. Everyone is signed out when the connection changes.</p>
+            <div class="dbconn-grid" id="dbconn-info"></div>
+            <div class="card-foot">
+              <button class="btn btn-ghost left" type="button" id="dbconn-reset" hidden>Use built-in connection</button>
+              <button class="btn btn-primary" type="button" id="dbconn-change"><svg><use href="#i-edit"/></svg>Change connection…</button>
+            </div>
+          </div>
+
+          <div class="card settings-card span-all" id="license-card">
+            <div class="card-head"><h3><svg><use href="#i-lock"/></svg>Software license</h3><span class="pill" id="license-pill"></span></div>
+            <p class="muted">To renew, click Renew License and email the request code to the administrator, then load the license file sent back.</p>
+            <div class="dbconn-grid" id="license-grid"></div>
+            <div class="card-foot">
+              <button class="btn btn-soft" type="button" id="license-renew"><svg><use href="#i-lock"/></svg>Renew License…</button>
+              <button class="btn btn-primary" type="button" id="license-load-set"><svg><use href="#i-file"/></svg>Load License File</button>
+            </div>
+          </div>
 
           <div class="card flush users-card">
             <div class="users-head">
@@ -390,6 +460,7 @@
   <script src="circulation.js"></script>
   <script src="reports.js"></script>
   <script src="settings.js"></script>
+  <script src="license.js"></script>
   <script src="start.js"></script>
 </body>
 </html>

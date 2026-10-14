@@ -239,7 +239,7 @@ async function toHtml(db, type, filters) {
   <div class="meta">${escapeHtml(rep.filterText)}<br>Generated on ${escapeHtml(rep.generatedOn)}</div>
 </div>
 <div class="summary">${escapeHtml(rep.summary)}</div>
-<table><thead><tr><th class="idx">#</th>${head}</tr></thead><tbody>${body}</tbody></table>
+<table><thead><tr><th class="idx">S.No</th>${head}</tr></thead><tbody>${body}</tbody></table>
 </body></html>`;
 }
 

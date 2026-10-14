@@ -8,6 +8,7 @@ const path = require('path');
 const { LibraryDB, UserError } = require('../src/database');
 const reports = require('../src/reports');
 const { today, addDays } = require('../src/dates');
+const { LicenseManager, LicenseError, SOFTWARE_NAME, SOFTWARE_KEY } = require('../src/license');
 
 const expectUserError = (fn, pattern) =>
   assert.throws(fn, (e) => e instanceof UserError && pattern.test(e.message), `expected UserError ${pattern}`);
@@ -92,6 +93,18 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(od[0].days_overdue, 13);
   assert.strictEqual(db.lookupForCirculation('OTA-002').overdueDays, 13);
 
+  // Barcode No suggestions: available books on the Issue page, issued books on the Return page
+  assert.deepStrictEqual(db.suggestBooks({ query: 'ota', status: 'Available' }).map((b) => b.book_no), ['OTA-003']);
+  assert.deepStrictEqual(db.suggestBooks({ query: 'ota', status: 'Issued' }).map((b) => b.book_no), ['OTA-001', 'OTA-002']);
+  assert.strictEqual(db.suggestBooks({ query: 'OTA-002', status: 'Issued' })[0].issue_user, 'Priya');
+  assert.deepStrictEqual(db.suggestBooks({ query: '%' }), [], 'LIKE wildcards are matched literally');
+  assert.deepStrictEqual(db.suggestBooks({ query: '  ' }), []);
+
+  // Borrower on return: another person may return by default; when switched off, only the borrower
+  assert.strictEqual(db.getSettings().allowOtherReturner, true);
+  assert.strictEqual(db.setAllowOtherReturner(false).allowOtherReturner, false);
+  expectUserError(() => db.returnBook({ bookNo: 'OTA-002', userName: 'Someone Else' }), /Only Priya can return/);
+
   // Return
   expectUserError(() => db.returnBook({ bookNo: 'OTA-003', userName: 'X' }), /not currently issued/);
   const ret = db.returnBook({ bookNo: 'OTA-002', userName: 'Priya', remarks: 'Cover torn' });
@@ -99,6 +112,7 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(ret.returned_late, 1, 'late return flagged');
   const ret2 = db.returnBook({ bookNo: 'OTA-001', userName: 'Ravi Kumar' });
   assert.strictEqual(ret2.returned_late, 0);
+  assert.strictEqual(db.setAllowOtherReturner(true).allowOtherReturner, true);
   d = db.dashboard();
   assert.deepStrictEqual([d.total, d.issued, d.available, d.overdue], [3, 0, 3, 0]);
   assert.strictEqual(db.overdueList(t).length, 0, 'returned book leaves overdue list');
@@ -139,6 +153,7 @@ const expectUserError = (fn, pattern) =>
   await xwb.xlsx.readFile(xlsx);
   assert.strictEqual(xwb.worksheets[0].getCell(1, 1).value, 'Technical Library - CGAS Chennai', 'library name heads the Excel report');
   assert.ok((await reports.toHtml(db, 'books', {})).includes('Technical Library - CGAS Chennai'), 'library name heads the PDF report');
+  assert.ok((await reports.toHtml(db, 'books', {})).includes('>S.No</th>'), 'PDF report numbers rows under S.No');
   assert.ok((await reports.toHtml(db, 'overdue', { asOn: addDays(t, -1) })).includes('Wings of Fire'));
 
   // Delete now that it is returned; history kept
@@ -296,6 +311,67 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(upgraded.getBookByNumber('OLD-1').rack, '');
   upgraded.saveBook({ book_no: 'OLD-2', name: 'New', rack: '3' });
   assert.strictEqual(upgraded.getBookByNumber('OLD-2').rack, '3');
+
+  // License: nothing opens without an approved, unexpired license for this installation.
+  const licData = path.join(dir, 'lic-data');
+  const licRoot = path.join(dir, 'lic-root');
+  fs.mkdirSync(licRoot);
+  let lic = new LicenseManager({ dataDir: licData, rootDirs: [licRoot] });
+  assert.strictEqual(lic.status().state, 'missing');
+  assert.strictEqual(lic.status().renewal, false);
+  assert.throws(() => lic.requestCode('  '), LicenseError);
+  const code = lic.requestCode('SVIT');
+  const key = lic.identity.softwareKey;
+  assert.strictEqual(key, SOFTWARE_KEY, 'unique id is the fixed constant of this version');
+  assert.match(key, /^[a-z0-9]{522}$/);
+  assert.strictEqual(code, `[LM-REQ] SVIT|web|${SOFTWARE_NAME}|${key}`);
+  lic = new LicenseManager({ dataDir: licData, rootDirs: [licRoot] });
+  assert.strictEqual(lic.identity.softwareKey, key, 'unique id is kept');
+  assert.strictEqual(lic.status().clientId, 'SVIT', 'client id is kept');
+  const licFile = (over = {}) =>
+    JSON.stringify({ success: true, data: { signature: { payload: { v: 3, platform: 'web', client_id: 'SVIT', key: SOFTWARE_NAME, status: 'Approved',
+      expiry_date: addDays(t, 30), license_id: 92, software_name: SOFTWARE_NAME, software_key: key, institute_name: 'Central Library', ...over }, sig: 'x' } } });
+  assert.throws(() => lic.install('{ nope'), /not a license file/);
+  assert.throws(() => lic.install(licFile({ software_key: 'other' })), /different software key/);
+  assert.throws(() => lic.install(licFile({ status: 'Pending' })), /not approved/);
+  assert.throws(() => lic.install(licFile({ client_id: 'OTHER' })), /Client ID/);
+  assert.throws(() => lic.install(licFile({ software_name: 'Gate', key: 'Gate' })), /different software/);
+  assert.throws(() => lic.install(licFile({ expiry_date: addDays(t, -1) })), /expired/);
+  assert.strictEqual(lic.install(licFile({ expiry_date: t })).valid, true, 'valid through the expiry date');
+  // A file pasted into the install folder: the later expiry wins; an expired one asks for renewal.
+  fs.writeFileSync(path.join(licRoot, `${SOFTWARE_NAME}_93.lmlic`), licFile({ expiry_date: addDays(t, 365) }));
+  assert.strictEqual(lic.reload().expiryDate, addDays(t, 365));
+  fs.writeFileSync(path.join(licRoot, `${SOFTWARE_NAME}_93.lmlic`), licFile({ expiry_date: addDays(t, -5) }));
+  // The saved copy is encrypted: not readable, and any edit (e.g. a later expiry) breaks it.
+  const store = path.join(licData, 'license.dat');
+  const sealed = fs.readFileSync(store, 'utf8');
+  assert.ok(!sealed.includes('expiry_date') && !sealed.includes(key), 'saved license is not readable');
+  const raw = Buffer.from(sealed, 'base64');
+  raw[raw.length - 3] ^= 1;
+  fs.writeFileSync(store, raw.toString('base64'));
+  const expired = lic.reload();
+  assert.strictEqual(expired.state, 'expired', 'edited saved copy no longer counts; the pasted expired file does');
+  assert.strictEqual(expired.renewal, true);
+  assert.strictEqual(expired.expiryDate, addDays(t, -5));
+  fs.rmSync(path.join(licRoot, `${SOFTWARE_NAME}_93.lmlic`));
+  assert.match(lic.reload().message, /changed or damaged/);
+  fs.writeFileSync(store, licFile({ expiry_date: addDays(t, 999) }));
+  assert.strictEqual(lic.reload().valid, false, 'a readable file in place of the saved copy is refused');
+  fs.writeFileSync(path.join(licData, 'license.json'), licFile());
+  new LicenseManager({ dataDir: licData });
+  assert.ok(!fs.existsSync(path.join(licData, 'license.json')), 'readable copies from earlier builds are removed');
+  // Loading a renewed file replaces the old one: no other step.
+  assert.strictEqual(lic.install(licFile({ expiry_date: addDays(t, 400) })).expiryDate, addDays(t, 400));
+
+  // Borrowers seen before: one per Number, from their latest issue (fills the Issue form)
+  const bdb = await LibraryDB.open(null);
+  bdb.saveBook({ book_no: 'N-1', name: 'Book one' });
+  bdb.saveBook({ book_no: 'N-2', name: 'Book two' });
+  bdb.issueBook({ bookNo: 'N-1', userName: 'Ravi', rank: 'Lt', number: 'C-101', dept: 'Ops', duration: 7 });
+  bdb.returnBook({ bookNo: 'N-1', userName: 'Ravi' });
+  bdb.issueBook({ bookNo: 'N-2', userName: 'Ravi Kumar', rank: 'Cdr', number: 'C-101', dept: 'Air', duration: 7 });
+  bdb.issueBook({ bookNo: 'N-1', userName: 'Priya', duration: 7 }); // no Number: not listed
+  assert.deepStrictEqual(bdb.borrowerDetails(), [{ number: 'C-101', name: 'Ravi Kumar', rank: 'Cdr', dept: 'Air' }]);
 
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('All smoke tests passed.');

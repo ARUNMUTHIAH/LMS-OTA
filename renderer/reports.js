@@ -3,7 +3,7 @@
 // Used by: renderer/index.html, which loads it with <script src="reports.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Reports ================= */
 const DATE_BY_TEXT = { issue: 'issued', return: 'returned', due: 'due back' };
@@ -85,12 +85,22 @@ function setReport(type) {
   attempt(refreshReport);
 }
 
+// Excel / PDF can be clicked only while the report table has rows (an empty export is never made).
+function updateExportButtons() {
+  const has = !!(reportRows && reportRows.rows.length);
+  ['#rep-excel', '#rep-pdf'].forEach((sel) => {
+    $(sel).disabled = !has;
+    $(sel).title = has ? '' : 'No data to export';
+  });
+}
+
 let reportSeq = 0;
 async function refreshReport() {
   updateReportHint();
   if (!checkReportRange()) {
     reportSeq++; // drop any request still in flight
     reportRows = null;
+    updateExportButtons();
     $('#rep-filter-text').textContent = 'Invalid date range';
     $('#rep-summary').textContent = '—';
     setHtml($('#report-table'), emptyState('calendar', 'Correct the date range above to view the report.'));
@@ -104,6 +114,7 @@ async function refreshReport() {
   $('#rep-filter-text').textContent = rep.filterText;
   $('#rep-summary').textContent = rep.summary;
   reportRows = rep;
+  updateExportButtons();
   renderReportTable();
 }
 
@@ -113,7 +124,7 @@ function renderReportTable() {
   const { pages, start, slice } = pageSlice(rep.rows, repPage);
   const dash = '<span class="muted">—</span>';
   setHtml($('#report-table'), slice.length
-    ? `<table class="table"><thead><tr><th class="idx">#</th>${rep.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
+    ? `<table class="table"><thead><tr><th class="idx">S.No</th>${rep.columns.map((c) => `<th class="${c.num ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
       ${slice
         .map(
           (r, i) =>
@@ -187,12 +198,12 @@ $('#rep-excel').addEventListener('click', (e) =>
   withBusy(e.currentTarget, async () => {
     const p = await rpc('exportExcel', state.report, reportFilters());
     if (p) savedToast('Excel file', p);
-  })
+  }).then(updateExportButtons)
 );
 $('#rep-pdf').addEventListener('click', (e) =>
   checkReportRange() &&
   withBusy(e.currentTarget, async () => {
     const p = await rpc('exportPdf', state.report, reportFilters());
     if (p) savedToast('PDF', p);
-  })
+  }).then(updateExportButtons)
 );

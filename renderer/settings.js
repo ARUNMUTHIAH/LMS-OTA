@@ -1,9 +1,11 @@
 'use strict';
-// Settings page: users, loan duration, backup and restore, automatic backup.
+// Settings page: users, loan duration, borrower on return, backup and restore, automatic backup,
+// database connection and the software license (license card: renderer/license.js).
+// The page opens only after the signed-in librarian re-enters their password (unlockSettings).
 // Used by: renderer/index.html, which loads it with <script src="settings.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Settings ================= */
 async function loadSettings() {
@@ -11,9 +13,10 @@ async function loadSettings() {
   state.settings = s;
   clearFieldErrors($('#page-settings'));
   $('#set-duration').value = s.defaultDuration;
+  renderReturnRule(s);
   $('#data-file').textContent = `${info.dataFile}  ·  Version ${info.version}`;
   renderAutoBackup(await rpc('getAutoBackup'));
-  await loadUsers();
+  await Promise.all([loadUsers(), loadDbConn(), loadLicenseCard()]);
 }
 
 /* ----- Users ----- */
@@ -31,7 +34,7 @@ function renderUsers() {
   setHtml($('#users-table'), shown.length
     ? `<table class="table users-table"><thead><tr>
       <th class="check"><input type="checkbox" id="users-all" title="Select all" /></th>
-      <th class="idx">#</th><th>Username</th><th>Status</th><th class="actions">Actions</th></tr></thead><tbody>
+      <th class="idx">S.No</th><th>Username</th><th>Status</th><th class="actions">Actions</th></tr></thead><tbody>
     ${shown
       .map(
         (u, i) => `<tr class="${u.me ? 'me' : ''}">
@@ -204,6 +207,69 @@ $('#duration-form').addEventListener('submit', (e) => {
   });
 });
 
+/* ----- Borrower on return ----- */
+function renderReturnRule(s) {
+  const value = s.allowOtherReturner === false ? 'borrower' : 'any';
+  $$('#return-rule-form input[name=returnBy]').forEach((r) => (r.checked = r.value === value));
+}
+
+$('#return-rule-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const allow = $('#return-rule-form').returnBy.value !== 'borrower';
+  attempt(async () => {
+    state.settings = await rpc('setReturnPolicy', allow);
+    renderReturnRule(state.settings);
+    toast(allow ? 'A book can now be returned by another person.' : 'Only the borrower can now return a book.');
+  });
+});
+
+/* ----- Password before the Settings page opens ----- */
+// Resolves true once the signed-in librarian has typed their own password correctly, false on Cancel.
+function unlockSettings() {
+  return new Promise((resolve) => {
+    const m = openModal({
+      title: 'Settings are locked',
+      iconName: 'lock',
+      size: 'small',
+      body: `<form method="post" id="unlock-form" autocomplete="off" novalidate>
+        <p class="muted unlock-help">Enter the password of <b>${esc(state.user.username)}</b> to open Settings.</p>
+        <label class="field"><span>Password <em>*</em></span><input name="password" type="password" maxlength="64" /></label>
+        <button type="submit" hidden></button>
+      </form>`,
+      foot: `<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" data-ok>${icon('lock')}Open Settings</button>`,
+    });
+    const form = $('#unlock-form', m.el);
+    const btn = $('[data-ok]', m.el);
+    let ok = false;
+    m.onClose = () => resolve(ok);
+    enhancePasswords(form);
+    setTimeout(() => form.password.focus(), 30);
+    async function submit() {
+      if (!validateFields([[form.password, (v) => (v ? '' : 'Enter your password.')]])) return;
+      btn.disabled = true;
+      const res = await window.api.unlockSettings(form.password.value);
+      btn.disabled = false;
+      if (res.auth || res.license) {
+        m.close();
+        showLogin();
+        return;
+      }
+      if (!res.ok) {
+        showFieldError(form.password, res.error);
+        form.password.select();
+        return;
+      }
+      ok = true;
+      m.close();
+    }
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      submit();
+    });
+    btn.addEventListener('click', submit);
+  });
+}
+
 $('#backup-btn').addEventListener('click', (e) =>
   withBusy(e.currentTarget, async () => {
     const p = await rpc('backup');
@@ -227,6 +293,114 @@ $('#restore-btn').addEventListener('click', async () => {
   });
 });
 
+/* ----- Database connection ----- */
+async function loadDbConn() {
+  const c = await rpc('dbConnGet');
+  const item = (label, value) => `<div><span>${label}</span><strong title="${esc(value)}">${esc(value) || '—'}</strong></div>`;
+  setHtml($('#dbconn-info'), item('Server', `${c.host}:${c.port}`) + item('Database', c.database) + item('Username', c.user) + item('Password', c.hasPassword ? '••••••••' : 'none'));
+  $('#dbconn-source').textContent = c.source === 'custom' ? 'Changed in Settings' : 'Built-in';
+  $('#dbconn-source').classList.toggle('pill-indigo', c.source === 'custom');
+  $('#dbconn-reset').hidden = !(c.source === 'custom' && c.hasBuiltIn);
+}
+
+// The Database connection dialog, from Settings or (database unreachable) from the sign-in screen.
+// Saving tests the connection first, then switches to it and signs everyone out.
+async function openDbForm() {
+  const res = await window.api.dbConnGet();
+  if (!res.ok) return toast(res.error, 'err');
+  const c = res.data;
+  const m = openModal({
+    title: 'Change database connection',
+    iconName: 'db',
+    body: `<form method="post" id="dbconn-form" class="dbconn-form" autocomplete="off" novalidate>
+      <label class="field"><span>Server address <em>*</em></span><input name="host" maxlength="255" spellcheck="false" value="${esc(c.host)}" placeholder="e.g. 192.168.1.20 or db.example.com" /></label>
+      <label class="field"><span>Port <em>*</em></span><input name="port" type="number" min="1" max="65535" step="1" value="${esc(c.port)}" /></label>
+      <label class="field wide"><span>Database name <em>*</em></span><input name="database" maxlength="64" spellcheck="false" value="${esc(c.database)}" /></label>
+      <label class="field wide"><span>Username <em>*</em></span><input name="user" maxlength="80" spellcheck="false" value="${esc(c.user)}" /></label>
+      <label class="field wide"><span>Password</span><input name="password" type="password" maxlength="256" placeholder="${c.hasPassword ? 'Leave blank to keep the current password' : ''}" />
+        <span class="hint">The password is stored encrypted on this computer.</span></label>
+      <div class="wide dbconn-result" data-result hidden></div>
+      <button type="submit" hidden></button>
+    </form>`,
+    foot: `<button class="btn btn-ghost left" data-close>Cancel</button><button class="btn btn-soft" data-test>Test connection</button><button class="btn btn-primary" data-save>Save &amp; reconnect</button>`,
+  });
+  const form = $('#dbconn-form', m.el);
+  const result = $('[data-result]', form);
+  enhancePasswords(form);
+  setTimeout(() => form.host.focus(), 30);
+  const payload = () => ({ host: form.host.value, port: form.port.value, database: form.database.value, user: form.user.value, password: form.password.value });
+  const valid = () =>
+    validateFields([
+      [form.host, (v) => (!v.trim() ? 'Enter the server address.' : /\s/.test(v.trim()) ? 'No spaces in the server address.' : '')],
+      [form.port, (v) => (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 65535 ? '' : 'Enter a port from 1 to 65535.')],
+      [form.database, (v) => (/^[\w$-]{1,64}$/.test(v.trim()) ? '' : 'Letters, numbers, _ $ - only.')],
+      [form.user, (v) => (v.trim() ? '' : 'Enter the username.')],
+    ]);
+  const say = (ok, text) => {
+    setHtml(result, `<div class="alert ${ok ? 'alert-ok' : 'alert-danger'}">${icon(ok ? 'check' : 'alert')}<div>${esc(text)}</div></div>`);
+    result.hidden = false;
+  };
+  const busy = async (btn, fn) => {
+    $$('.modal-foot .btn', m.el).forEach((b) => (b.disabled = true));
+    const label = btn.textContent;
+    btn.textContent = btn.dataset.test !== undefined ? 'Testing…' : 'Connecting…';
+    try {
+      return await fn();
+    } finally {
+      btn.textContent = label;
+      $$('.modal-foot .btn', m.el).forEach((b) => (b.disabled = false));
+    }
+  };
+  $('[data-test]', m.el).addEventListener('click', (e) => {
+    if (!valid()) return;
+    busy(e.currentTarget, async () => {
+      const r = await window.api.dbConnTest(payload());
+      say(r.ok, r.ok ? 'Connection works.' : r.error);
+    });
+  });
+  async function save(btn) {
+    if (!valid()) return;
+    const ok = await confirmDialog({
+      title: 'Switch to this database?',
+      message: 'The connection is tested first. Everyone is signed out, and the library then uses this database. If it has no librarian accounts yet, you will be asked to create one.',
+      okLabel: 'Save & reconnect',
+    });
+    if (!ok) return;
+    await busy(btn, async () => {
+      const r = await window.api.dbConnSave(payload());
+      if (!r.ok) return say(false, r.error);
+      m.close();
+      await showLogin();
+      toast('Database connection changed. Please sign in.');
+    });
+  }
+  $('[data-save]', m.el).addEventListener('click', (e) => save(e.currentTarget));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    save($('[data-save]', m.el));
+  });
+}
+
+$('#dbconn-change').addEventListener('click', () => openDbForm());
+$('#db-fix-link').addEventListener('click', (e) => {
+  e.preventDefault();
+  openDbForm();
+});
+$('#dbconn-reset').addEventListener('click', async () => {
+  const ok = await confirmDialog({
+    title: 'Use the built-in connection?',
+    message: 'The connection changed in Settings is removed and the library goes back to the database built into the app. Everyone is signed out.',
+    okLabel: 'Use built-in',
+    danger: true,
+  });
+  if (!ok) return;
+  await attempt(async () => {
+    await rpc('dbConnReset');
+    await showLogin();
+    toast('Back on the built-in database connection. Please sign in.');
+  });
+});
+
 /* ----- Automatic backup ----- */
 function renderAutoBackup(ab) {
   state.autoBackup = ab;
@@ -235,7 +409,8 @@ function renderAutoBackup(ab) {
   $('#ab-folder').title = ab.folder;
   $('#ab-keep').value = ab.keep;
   const last = ab.last ? `Last automatic backup: ${fmtDate(ab.last)}` : 'No automatic backup yet.';
-  $('#ab-status').textContent = ab.error ? `${last}  ·  Last attempt failed (${ab.error})` : last;
+  const kept = `${ab.count || 0} of ${plural(ab.keep, 'backup')} in the rotation`;
+  $('#ab-status').textContent = ab.error ? `${last}  ·  ${kept}  ·  Last attempt failed (${ab.error})` : `${last}  ·  ${kept}`;
 }
 
 const saveAutoBackup = () =>

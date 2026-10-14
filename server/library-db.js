@@ -185,19 +185,26 @@ class MySqlLibraryDB {
   async getSettings() {
     const [user, rows] = await Promise.all([
       this.get(`SELECT username FROM ${this.t.users} ORDER BY id LIMIT 1`),
-      this.all(`SELECT \`key\`, \`value\` FROM ${this.t.settings} WHERE \`key\` IN ('default_duration', 'default_credentials')`),
+      this.all(`SELECT \`key\`, \`value\` FROM ${this.t.settings} WHERE \`key\` IN ('default_duration', 'default_credentials', 'return_by_other')`),
     ]);
     const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     return {
       defaultDuration: Number(s.default_duration) || 14,
       username: user ? user.username : '',
       defaultCredentials: s.default_credentials === '1',
+      // May a book issued to one person be returned under another person's name? (Settings page)
+      allowOtherReturner: s.return_by_other !== '0',
     };
   }
 
   async setDefaultDuration(days) {
     check(checks.duration(days));
     await this._setSetting('default_duration', Number(days));
+    return this.getSettings();
+  }
+
+  async setAllowOtherReturner(allow) {
+    await this._setSetting('return_by_other', allow ? '1' : '0');
     return this.getSettings();
   }
 
@@ -491,6 +498,26 @@ class MySqlLibraryDB {
     return true;
   }
 
+  // Barcode No suggestions while typing on the Issue / Return pages: books whose Barcode No
+  // contains the typed text, those starting with it first. status 'Available' (Issue page) or
+  // 'Issued' (Return page) leaves out books that cannot be issued / returned.
+  async suggestBooks({ query = '', status = '', limit = 8 } = {}) {
+    const q = clean(query);
+    if (!q) return [];
+    const n = Math.min(Math.max(Number(limit) || 8, 1), 20);
+    const where = ['b.book_no LIKE ?'];
+    if (status === 'Available') where.push('i.id IS NULL');
+    if (status === 'Issued') where.push('i.id IS NOT NULL');
+    const prefix = `${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    return this.all(
+      `SELECT b.book_no, b.name, i.issue_user, i.due_date, CASE WHEN i.id IS NULL THEN 'Available' ELSE 'Issued' END AS status
+       FROM ${this.t.books} b LEFT JOIN ${this.t.issues} i ON i.book_id = b.id AND i.return_date IS NULL
+       WHERE ${where.join(' AND ')}
+       ORDER BY (b.book_no LIKE ?) DESC, CHAR_LENGTH(b.book_no), b.book_no LIMIT ${n}`,
+      [likeParam(q), prefix]
+    );
+  }
+
   // ---------- Circulation ----------
   async lookupForCirculation(bookNo) {
     const book = await this.getBookByNumber(bookNo);
@@ -540,6 +567,9 @@ class MySqlLibraryDB {
       if (!book) throw new UserError(`No book found with Barcode No "${clean(bookNo)}".`);
       if (!book.issue_id) throw new UserError(`Book "${book.book_no}" is not currently issued.`);
       check(checks.person(userName, 'Name'), checks.remarks(remarks));
+      if ((await this.getSetting('return_by_other', cx)) === '0' && clean(userName).toLowerCase() !== clean(book.issue_user).toLowerCase()) {
+        throw new UserError(`This book was issued to ${book.issue_user}. Only ${book.issue_user} can return it (Settings → Borrower on return).`);
+      }
       const late = returnDate > book.due_date ? 1 : 0;
       await this.run(
         `UPDATE ${this.t.issues} SET return_date = ?, return_user = ?, return_remarks = ?, returned_late = ?, returned_at = ? WHERE id = ?`,
@@ -564,6 +594,17 @@ class MySqlLibraryDB {
        ORDER BY name`
     );
     return rows.map((r) => r.name);
+  }
+
+  // Borrowers seen before, one per Number (their latest issue): picking a Number on the Issue page
+  // fills in Name, Rank and Dept.
+  async borrowerDetails() {
+    return this.all(
+      `SELECT i.issue_number AS number, i.issue_user AS name, i.issue_rank AS \`rank\`, i.issue_dept AS dept
+       FROM ${this.t.issues} i
+       JOIN (SELECT MAX(id) AS id FROM ${this.t.issues} WHERE issue_number <> '' GROUP BY issue_number) latest ON latest.id = i.id
+       ORDER BY i.issue_number`
+    );
   }
 
   async recentActivity(limit = 12) {

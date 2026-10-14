@@ -230,7 +230,14 @@ class LibraryDB {
       defaultDuration: Number(this.getSetting('default_duration')) || 14,
       username: user ? user.username : '',
       defaultCredentials: this.getSetting('default_credentials') === '1',
+      // May a book issued to one person be returned under another person's name? (Settings page)
+      allowOtherReturner: this.getSetting('return_by_other') !== '0',
     };
+  }
+
+  setAllowOtherReturner(allow) {
+    this._transaction(() => this._setSetting('return_by_other', allow ? '1' : '0'));
+    return this.getSettings();
   }
 
   setDefaultDuration(days) {
@@ -570,12 +577,33 @@ class LibraryDB {
     });
   }
 
+  // Barcode No suggestions for the Issue / Return pages (same rules as server/library-db.js).
+  suggestBooks({ query = '', status = '', limit = 8 } = {}) {
+    const q = clean(query);
+    if (!q) return [];
+    const n = Math.min(Math.max(Number(limit) || 8, 1), 20);
+    const where = ["b.book_no LIKE ? ESCAPE '\\'"];
+    if (status === 'Available') where.push('i.id IS NULL');
+    if (status === 'Issued') where.push('i.id IS NOT NULL');
+    const prefix = `${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    return this.all(
+      `SELECT b.book_no, b.name, i.issue_user, i.due_date, CASE WHEN i.id IS NULL THEN 'Available' ELSE 'Issued' END AS status
+       FROM books b LEFT JOIN issues i ON i.book_id = b.id AND i.return_date IS NULL
+       WHERE ${where.join(' AND ')}
+       ORDER BY (b.book_no LIKE ? ESCAPE '\\') DESC, LENGTH(b.book_no), b.book_no COLLATE NOCASE LIMIT ${n}`,
+      [likeParam(q), prefix]
+    );
+  }
+
   returnBook({ bookNo, userName, remarks }) {
     const book = this.getBookByNumber(bookNo);
     if (!book) throw new UserError(`No book found with Barcode No "${clean(bookNo)}".`);
     if (!book.issue_id) throw new UserError(`Book "${book.book_no}" is not currently issued.`);
     check(checks.person(userName, 'Name'), checks.remarks(remarks));
     const user = clean(userName);
+    if (this.getSetting('return_by_other') === '0' && user.toLowerCase() !== clean(book.issue_user).toLowerCase()) {
+      throw new UserError(`This book was issued to ${book.issue_user}. Only ${book.issue_user} can return it (Settings → Borrower on return).`);
+    }
     const returnDate = today();
     const late = returnDate > book.due_date ? 1 : 0;
     return this._transaction(() => {
@@ -592,6 +620,16 @@ class LibraryDB {
   shelfValues() {
     const values = (sql) => this.all(sql).map((r) => r.v);
     return { categories: values(SHELF_SQL.categories), locations: values(SHELF_SQL.locations), racks: values(SHELF_SQL.racks) };
+  }
+
+  // Borrowers seen before, one per Number (their latest issue); same as server/library-db.js.
+  borrowerDetails() {
+    return this.all(
+      `SELECT i.issue_number AS number, i.issue_user AS name, i.issue_rank AS rank, i.issue_dept AS dept
+       FROM issues i
+       JOIN (SELECT MAX(id) AS id FROM issues WHERE issue_number <> '' GROUP BY issue_number) latest ON latest.id = i.id
+       ORDER BY i.issue_number COLLATE NOCASE`
+    );
   }
 
   borrowerNames() {

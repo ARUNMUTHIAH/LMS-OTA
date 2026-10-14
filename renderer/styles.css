@@ -311,9 +311,26 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #report-table { max-height: calc(100vh - 350px); overflow: auto; }
 
 /* ---------- Settings ---------- */
-.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; max-width: 1080px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: stretch; max-width: 1180px; }
 .settings-grid .alert { margin: 0 0 14px; }
-.settings-grid p.muted { margin: 0 0 14px; }
+.settings-grid p.muted { margin: 0 0 16px; line-height: 1.5; }
+/* Cards in one row share a height; the footer with the buttons sits at the bottom of each. */
+.settings-card { display: flex; flex-direction: column; }
+.settings-card .field { margin-bottom: 16px; }
+.settings-card .card-head .pill { margin-left: auto; }
+.card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: auto -18px -18px; padding: 12px 18px; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 var(--radius) var(--radius); }
+.card-foot .left { margin-right: auto; }
+.data-file { margin: 0; padding: 8px 10px; font-size: 12.5px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); word-break: break-word; }
+.ab-status { margin: -4px 0 16px; }
+/* "Borrower on return" choices */
+.choice-list { display: grid; gap: 8px; }
+.choice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; cursor: pointer; }
+.choice:hover { border-color: #9ca3af; }
+.choice input { width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--primary); cursor: pointer; flex: none; }
+.choice strong { display: block; font-size: 13px; color: var(--ink); }
+.choice small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.choice:has(input:checked) { border-color: var(--primary); background: var(--primary-50); }
+.field input[readonly] { background: var(--surface-2); color: var(--ink-2); }
 
 /* ---------- Modal ---------- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: flex; align-items: center; justify-content: center; z-index: 50; animation: fadeIn .12s ease; padding: 30px; }
@@ -382,9 +399,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .report-filters .field.inline { position: relative; }
 .report-filters .field.inline .field-error { position: absolute; top: 100%; left: 0; margin-top: 3px; white-space: nowrap; }
 .report-actions { align-self: flex-end; }
-/* Settings: duration input with its label */
-.duration-field { margin-bottom: 0; }
-.duration-field .inline-form input { width: 110px; }
 .login-card .field-error { margin-top: 1px; }
 
 /* ---------- Issue page ---------- */
@@ -473,7 +487,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .users-head p { margin: 3px 0 0; font-size: 12.5px; }
 .users-actions { display: flex; gap: 8px; }
 .users-table .check { width: 44px; text-align: center; }
-.users-table .idx { width: 40px; }
 .users-table input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary); vertical-align: middle; }
 .users-table input[type=checkbox]:disabled { cursor: not-allowed; opacity: .4; }
 .users-table tr.selected td { background: var(--primary-50); }
@@ -506,7 +519,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .copyright:hover { color: var(--primary); text-decoration: underline; }
 .login-copy { text-align: center; margin-top: 10px; }
 .app-footer { text-align: center; padding: 18px 28px 22px; }
-.settings-grid { grid-template-columns: 1fr 1fr; }
 
 /* ---------- Password show/hide ---------- */
 .pw-wrap { position: relative; display: block; }
@@ -532,6 +544,8 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 @media (max-width: 1280px) {
   .dash-grid { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
+}
+@media (max-width: 1000px) {
   .settings-grid { grid-template-columns: 1fr; max-width: none; }
 }
 
@@ -709,6 +723,52 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 
 /* Automatic backup card */
-.check-row { display: flex; align-items: center; gap: 8px; margin: 4px 0 14px; font-weight: 600; cursor: pointer; }
+.check-row { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; font-weight: 600; cursor: pointer; }
 .check-row input { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
 #autobackup-form .inline-form #ab-folder { flex: 1; width: auto; min-width: 0; }
+
+/* ================= License screen ================= */
+.license-state { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 18px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line); font-size: 12.5px; }
+.license-state svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+.license-state strong { display: block; font-size: 13.5px; margin-bottom: 2px; }
+.license-state span { display: block; color: var(--ink-2); }
+.license-state span + span { margin-top: 6px; color: var(--muted); }
+.license-state.ok { background: var(--green-50); border-color: #bbf7d0; }
+.license-state.ok svg, .license-state.ok strong { color: var(--green); }
+.license-state.err { background: var(--red-50); border-color: #fecaca; }
+.license-state.err svg, .license-state.err strong { color: var(--red); }
+.license-state.warn { background: var(--amber-50); border-color: #fde68a; }
+.license-state.warn svg, .license-state.warn strong { color: var(--amber); }
+.license-actions { display: grid; gap: 8px; margin-top: 10px; }
+.license-actions .btn { margin-top: 0; }
+.license-help { margin: 0 0 14px; color: var(--ink-2); }
+.license-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0 0 14px; font-size: 13px; }
+.license-grid dt { color: var(--muted); }
+.license-grid dd { margin: 0; font-weight: 600; word-break: break-all; }
+.license-code { min-height: 130px; resize: vertical; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 12px; word-break: break-all; background: var(--surface-2); }
+
+/* ================= Serial number column (S.No) ================= */
+.table th.idx, .table td.idx { width: 56px; white-space: nowrap; }
+
+/* ================= Barcode No suggestions (Issue / Return) ================= */
+.scan-field .suggest-wrap > input { width: 100%; }
+.suggest-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.suggest-main { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.suggest-main .mono { font-family: 'Cascadia Mono', Consolas, monospace; font-weight: 600; color: var(--ink); flex: none; }
+.suggest-desc { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest-sub { font-size: 11.5px; color: var(--muted); }
+.scan-field .suggest { z-index: 40; }
+.scan-field .suggest svg { position: static; transform: none; width: 14px; height: 14px; }
+.unlock-help { margin: 0 0 14px; }
+
+/* ================= Database connection ================= */
+.settings-card.span-all { grid-column: 1 / -1; }
+.dbconn-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.dbconn-grid div { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); padding: 8px 12px; min-width: 0; }
+.dbconn-grid span { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.dbconn-grid strong { display: block; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbconn-form { display: grid; grid-template-columns: 1fr 120px; column-gap: 12px; }
+.dbconn-form .wide { grid-column: 1 / -1; }
+.dbconn-result { margin: 0 0 14px; }
+#db-fix a { color: var(--primary); }
+@media (max-width: 1000px) { .dbconn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

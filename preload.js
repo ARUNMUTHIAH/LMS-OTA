@@ -3,6 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 const call = (channel) => (...args) => ipcRenderer.invoke(channel, ...args);
 
 contextBridge.exposeInMainWorld('api', {
+  licenseStatus: call('license:status'),
+  licenseRequest: call('license:request'),
+  licenseCopy: call('license:copy'),
+  licenseLoad: call('license:load'),
+
   login: call('auth:login'),
   logout: call('auth:logout'),
   loginHint: call('auth:loginHint'),
@@ -16,8 +21,10 @@ contextBridge.exposeInMainWorld('api', {
   deleteUser: call('users:delete'),
   deleteUsers: call('users:deleteMany'),
 
+  unlockSettings: call('settings:unlock'),
   getSettings: call('settings:get'),
   setDefaultDuration: call('settings:setDuration'),
+  setReturnPolicy: call('settings:setReturnPolicy'),
 
   dashboard: call('dashboard:stats'),
   overdueNow: call('dashboard:overdue'),
@@ -33,11 +40,13 @@ contextBridge.exposeInMainWorld('api', {
   importCancel: call('books:importCancel'),
   importErrors: call('books:importErrors'),
 
+  suggestBooks: call('circ:suggest'),
   lookup: call('circ:lookup'),
   issueBook: call('circ:issue'),
   returnBook: call('circ:return'),
   todaysActivity: call('circ:today'),
   borrowers: call('circ:borrowers'),
+  borrowerDetails: call('circ:borrowerDetails'),
   circList: call('circ:list'),
 
   report: call('reports:get'),
@@ -55,4 +64,9 @@ contextBridge.exposeInMainWorld('api', {
   chooseBackupFolder: call('backup:chooseFolder'),
   runAutoBackup: call('backup:runNow'),
   appInfo: call('app:info'),
+
+  dbConnGet: call('dbconn:get'),
+  dbConnTest: call('dbconn:test'),
+  dbConnSave: call('dbconn:save'),
+  dbConnReset: call('dbconn:reset'),
 });

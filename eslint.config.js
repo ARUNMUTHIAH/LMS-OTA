@@ -3,7 +3,7 @@ const globals = require('globals');
 const security = require('eslint-plugin-security');
 
 module.exports = [
-  { ignores: ['node_modules/', 'dist/', 'dist-general/', '.build-general/', 'server/node_modules/'] },
+  { ignores: ['node_modules/', 'dist/', 'dist-general/', '.build-general/', '.build-technical/', 'server/node_modules/'] },
   js.configs.recommended,
   security.configs.recommended,
   {

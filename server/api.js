@@ -89,8 +89,19 @@ function createApi(pool, { sessionHours = 12 } = {}) {
       for (const id of Array.isArray(ids) ? ids : []) dropSessions(ctx.edition, Number(id));
       return n;
     },
+    // The Settings page opens only after the signed-in librarian types their own password again.
+    // Wrong guesses count towards the same 10-in-15-minutes limit as the sign-in.
+    async verifyPassword(db, [password], ctx) {
+      const f = failures.get(ctx.ip);
+      if (f && f.until > Date.now() && f.count >= 10) throw new UserError('Too many wrong passwords. Please wait 15 minutes and try again.');
+      if (await db.verifyLogin(ctx.session.username, password)) return true;
+      if (!f || f.until < Date.now()) failures.set(ctx.ip, { count: 1, until: Date.now() + 15 * 60e3 });
+      else f.count += 1;
+      throw new UserError('Incorrect password.');
+    },
     getSettings: (db, args, ctx) => settingsFor(db, ctx.session),
     setDefaultDuration: (db, [days]) => db.setDefaultDuration(days),
+    setAllowOtherReturner: (db, [allow]) => db.setAllowOtherReturner(!!allow),
     dashboard: (db) => db.dashboard(),
     overdueList: (db, [asOn, filters]) => db.overdueList(asOn, filters || {}),
     searchBooks: (db, [f]) => db.searchBooks(f || {}),
@@ -100,12 +111,14 @@ function createApi(pool, { sessionHours = 12 } = {}) {
     shelfValues: (db) => db.shelfValues(),
     validateImport: (db, [rows]) => db.validateImport(rows),
     importBooks: (db, [rows]) => db.importBooks(rows),
+    suggestBooks: (db, [f]) => db.suggestBooks(f || {}),
     lookupForCirculation: (db, [bookNo]) => db.lookupForCirculation(bookNo),
     issueBook: (db, [p]) => db.issueBook(p || {}),
     returnBook: (db, [p]) => db.returnBook(p || {}),
     todaysActivity: (db, [kind]) => db.todaysActivity(kind),
     circulationList: (db, [f]) => db.circulationList(f || {}),
     borrowerNames: (db) => db.borrowerNames(),
+    borrowerDetails: (db) => db.borrowerDetails(),
     exportData: (db) => db.exportData(),
     async replaceData(db, [data], ctx) {
       await db.replaceData(data);

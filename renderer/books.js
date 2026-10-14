@@ -3,7 +3,7 @@
 // Used by: renderer/index.html, which loads it with <script src="books.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Books ================= */
 
@@ -35,10 +35,11 @@ function renderBooks() {
   const filtered = state.books.query || state.books.status;
 
   setHtml($('#books-table'), slice.length
-    ? `<table class="table"><thead><tr><th>Barcode No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th class="actions"></th></tr></thead><tbody>
+    ? `<table class="table"><thead><tr><th class="idx">S.No</th><th>Barcode No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th class="actions"></th></tr></thead><tbody>
       ${slice
         .map(
-          (b) => `<tr>
+          (b, i) => `<tr>
+            <td class="idx muted">${start + i + 1}</td>
             <td class="mono">${esc(b.book_no)}</td>
             <td class="mono">${esc(b.lf) || '<span class="muted">—</span>'}</td>
             <td class="nowrap">${esc(b.category) || '<span class="muted">—</span>'}</td>

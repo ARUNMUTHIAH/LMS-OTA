@@ -3,7 +3,7 @@
 // Used by: renderer/index.html, which loads it with <script src="app.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= State & navigation ================= */
 const state = {
@@ -12,7 +12,7 @@ const state = {
   page: 'dashboard',
   books: { query: '', status: '', page: 1, size: 25, rows: [] },
   report: 'books',
-  lookups: { categories: [], locations: [], racks: [], borrowers: [] },
+  lookups: { categories: [], locations: [], racks: [], borrowers: [], borrowerDetails: [] },
 };
 
 const PAGES = {
@@ -21,10 +21,12 @@ const PAGES = {
   issue: ['Issue Book', 'Enter the Barcode No, then the borrower details'],
   return: ['Return Book', 'Enter the Barcode No to receive the book back'],
   reports: ['Reports', 'View and export to Excel or PDF'],
-  settings: ['Settings', 'Users, loan duration and data backup'],
+  settings: ['Settings', 'Users, loan duration, return rules and data backup'],
 };
 
-function go(page, opts = {}) {
+// Settings asks for the signed-in librarian's password each time it is opened from another page.
+async function go(page, opts = {}) {
+  if (page === 'settings' && state.page !== 'settings' && !(await unlockSettings())) return;
   state.page = page;
   $$('.nav-item').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== `page-${page}`));
@@ -55,6 +57,10 @@ async function showLogin() {
   state.user = null;
   while (modalStack.length) modalStack[modalStack.length - 1].close();
   $('#app').hidden = true;
+  // No valid license: the License screen instead of the sign-in.
+  if (!(await ensureLicense())) return;
+  if (state.user) return;
+  $('#license-screen').hidden = true;
   $('#login-screen').hidden = false;
   $('#login-username').value = '';
   $('#login-password').value = '';
@@ -68,7 +74,9 @@ async function showLogin() {
   // Signed in meanwhile: leave the screen alone.
   if (state.user || $('#login-screen').hidden) return;
   const needsSetup = !!(setup.ok && setup.data);
-  // Server not reachable: say so straight away instead of waiting for a sign-in attempt.
+  // Server not reachable: say so straight away instead of waiting for a sign-in attempt, and offer
+  // to change the database connection (nobody can sign in to reach Settings meanwhile).
+  $('#db-fix').hidden = setup.ok;
   if (!setup.ok) {
     $('#login-error').textContent = setup.error;
     $('#login-error').hidden = false;
@@ -121,6 +129,7 @@ $('#setup-form').addEventListener('submit', async (e) => {
   const done = busyButton($('#setup-form button[type=submit]'), 'Creating account…');
   try {
     const res = await window.api.setup({ username: $('#setup-username').value.trim(), password: password.value });
+    if (res.license) return showLogin();
     if (!res.ok) {
       $('#setup-error').textContent = res.error;
       $('#setup-error').hidden = false;
@@ -147,6 +156,7 @@ $('#login-form').addEventListener('submit', async (e) => {
   const done = busyButton($('#login-form button[type=submit]'), 'Signing in…');
   try {
     const res = await window.api.login({ username: $('#login-username').value, password: $('#login-password').value });
+    if (res.license) return showLogin();
     if (!res.ok) {
       $('#login-error').textContent = res.error;
       $('#login-error').hidden = false;
@@ -173,6 +183,7 @@ function enterApp() {
   $('#today-label').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   refreshLookups();
   go('dashboard');
+  licenseReminder();
   if (state.settings.defaultCredentials) {
     toast('You are using the default password. Change it in Settings → Users.', 'info', [
       { label: 'Open Settings', run: () => go('settings') },
@@ -190,8 +201,8 @@ $('#logout-btn').addEventListener('click', async () => {
 // Datalists for categories and borrower names.
 async function refreshLookups() {
   await attempt(async () => {
-    const [shelf, names] = await Promise.all([rpc('shelfValues'), rpc('borrowers')]);
-    state.lookups = { ...shelf, borrowers: names };
+    const [shelf, names, details] = await Promise.all([rpc('shelfValues'), rpc('borrowers'), rpc('borrowerDetails')]);
+    state.lookups = { ...shelf, borrowers: names, borrowerDetails: details };
     const fill = (sel, values) => {
       const cur = sel.value;
       setHtml(sel, '<option value="">All</option>' + values.map((v) => `<option>${esc(v)}</option>`).join(''));

@@ -83,4 +83,36 @@ class DirectDB {
   }
 }
 
-module.exports = { DirectDB };
+// Checks that a database connection works (Settings → Database connection) without changing
+// anything there. Resolves true, or throws UserError with what is wrong in plain words.
+async function testConnection(config) {
+  const where = `${config.host}:${Number(config.port) || 3306}`;
+  let cx;
+  try {
+    cx = await mysql.createConnection({
+      host: config.host,
+      port: Number(config.port) || 3306,
+      user: config.user,
+      password: config.password,
+      database: config.database,
+      connectTimeout: 10000,
+    });
+    await cx.query('SELECT 1');
+    return true;
+  } catch (e) {
+    const why = {
+      ER_ACCESS_DENIED_ERROR: 'The username or password is wrong.',
+      ER_BAD_DB_ERROR: `The database "${config.database}" does not exist on ${where}.`,
+      ER_DBACCESS_DENIED_ERROR: `The user "${config.user}" has no access to the database "${config.database}".`,
+      ENOTFOUND: `The server "${config.host}" was not found. Check the server address.`,
+      ECONNREFUSED: `${where} refused the connection. Check the server address and port.`,
+      ETIMEDOUT: `No answer from ${where}. Check the server address, port and the network.`,
+      EHOSTUNREACH: `${where} cannot be reached from this computer.`,
+    }[e.code];
+    throw new UserError(why || `Could not connect to ${where}: ${e.message}`);
+  } finally {
+    if (cx) await cx.end().catch(() => {});
+  }
+}
+
+module.exports = { DirectDB, testConnection };

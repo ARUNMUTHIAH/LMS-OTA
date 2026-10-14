@@ -4,7 +4,7 @@
 // Used by: renderer/index.html, which loads it with <script src="ui.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Helpers ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -68,8 +68,13 @@ function emptyState(iconName, text) {
 
 /* ================= Suggestions (typeahead) ================= */
 // A plain text box that shows matching earlier values underneath while typing — no dropdown arrow.
-// getItems() returns the list to search (e.g. names used before).
-function attachSuggest(input, getItems) {
+// getItems() returns the list to search (e.g. names used before): strings, or { value, text, sub }
+// rows that are matched on value and show text / sub beside it.
+// With opts.fetchItems(q) instead, the matches come from the server: an async function returning
+// [{ value, text, sub }] already filtered (used for the Barcode No on the Issue / Return pages).
+// opts.head: list heading; opts.iconName: icon per row; opts.onPick(value): runs after a pick.
+function attachSuggest(input, getItems, opts = {}) {
+  const { fetchItems = null, head = 'Used before', iconName = 'user', onPick = null } = opts;
   if (input.dataset.suggest) return;
   input.dataset.suggest = '1';
   input.setAttribute('autocomplete', 'off');
@@ -83,10 +88,13 @@ function attachSuggest(input, getItems) {
   box.hidden = true;
   box.setAttribute('role', 'listbox');
   wrap.appendChild(box);
-  let items = [];
+  let items = []; // [{ value, text, sub }]
   let active = -1;
+  let seq = 0; // server lookups: only the reply to the latest keystroke is shown
+  let done = null; // value just picked or entered: its own echo must not reopen the list
 
   const close = () => {
+    seq++;
     box.hidden = true;
     active = -1;
   };
@@ -95,38 +103,72 @@ function attachSuggest(input, getItems) {
     const i = v.toLowerCase().indexOf(q);
     return i < 0 ? esc(v) : esc(v.slice(0, i)) + '<b>' + esc(v.slice(i, i + q.length)) + '</b>' + esc(v.slice(i + q.length));
   };
-  const render = () => {
-    const q = input.value.trim().toLowerCase();
-    if (!q) return close();
+  const localMatches = (q) => {
     const starts = [];
     const contains = [];
     for (const v of getItems() || []) {
-      const l = String(v).toLowerCase();
-      if (l.startsWith(q)) starts.push(v);
-      else if (l.includes(q)) contains.push(v);
+      const it = v && typeof v === 'object' ? v : { value: String(v) };
+      const l = it.value.toLowerCase();
+      if (l.startsWith(q)) starts.push(it);
+      else if (l.includes(q)) contains.push(it);
     }
-    items = [...starts, ...contains].slice(0, 8);
-    if (!items.length || (items.length === 1 && items[0].toLowerCase() === q)) return close();
+    return [...starts, ...contains].slice(0, 8);
+  };
+  const show = (q) => {
+    if (!items.length || (!onPick && items.length === 1 && items[0].value.toLowerCase() === q)) return close();
     active = -1;
-    setHtml(box, `<div class="suggest-head">Used before</div>` +
-      items.map((v, i) => `<div class="suggest-item" role="option" data-i="${i}">${icon('user')}<span>${highlight(v, q)}</span></div>`).join(''));
+    setHtml(box, `<div class="suggest-head">${esc(head)}</div>` +
+      items
+        .map(
+          (it, i) => `<div class="suggest-item" role="option" data-i="${i}">${icon(iconName)}<span class="suggest-text">
+            <span class="suggest-main"><span class="${fetchItems ? 'mono' : ''}">${highlight(it.value, q)}</span>${it.text ? `<span class="suggest-desc">${esc(it.text)}</span>` : ''}</span>
+            ${it.sub ? `<span class="suggest-sub">${esc(it.sub)}</span>` : ''}</span></div>`
+        )
+        .join(''));
     box.hidden = false;
   };
+  const render = async () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q || input.value === done) return close();
+    done = null;
+    if (!fetchItems) {
+      items = localMatches(q);
+      return show(q);
+    }
+    const mine = ++seq;
+    let found;
+    try {
+      found = await fetchItems(input.value.trim());
+    } catch {
+      found = []; // suggestions are a convenience: a failed lookup just shows none
+    }
+    if (mine !== seq || document.activeElement !== input) return; // typed on, picked or left meanwhile
+    items = found || [];
+    show(q);
+  };
   const pick = (i) => {
-    input.value = items[i];
+    input.value = items[i].value;
+    done = input.value;
     close();
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
+    if (onPick) onPick(items[i].value);
   };
-  input.addEventListener('input', render);
+  input.addEventListener('input', fetchItems ? debounce(render, 180) : render);
   input.addEventListener('keydown', (e) => {
+    // Enter on a typed value (no row chosen): the page acts on it; no list may pop up afterwards.
+    if (e.key === 'Enter' && active < 0) {
+      done = input.value;
+      close();
+      return;
+    }
     if (box.hidden) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const n = items.length;
       active = e.key === 'ArrowDown' ? (active + 1) % n : (active - 1 + n) % n;
       mark();
-    } else if (e.key === 'Enter' && active >= 0) {
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       e.stopImmediatePropagation();
       pick(active);
@@ -313,7 +355,7 @@ class ApiError extends Error {}
 async function rpc(name, ...args) {
   const res = await window.api[name](...args);
   if (!res.ok) {
-    if (res.auth) showLogin();
+    if (res.license || res.auth) showLogin(); // showLogin opens the License screen when needed
     throw new ApiError(res.error);
   }
   return res.data;
@@ -358,6 +400,8 @@ function toast(message, kind = 'ok', actions = []) {
 /* ================= Modals ================= */
 const modalStack = [];
 
+// A click outside the dialog never closes it: only its own buttons (or Esc) do, so a stray click
+// cannot throw away what was typed.
 function openModal({ title, iconName, body, foot = '', size = '' }) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
@@ -378,9 +422,6 @@ function openModal({ title, iconName, body, foot = '', size = '' }) {
     },
   };
   modalStack.push(m);
-  backdrop.addEventListener('mousedown', (e) => {
-    if (e.target === backdrop) m.close();
-  });
   $$('[data-close]', backdrop).forEach((b) => b.addEventListener('click', () => m.close()));
   return m;
 }

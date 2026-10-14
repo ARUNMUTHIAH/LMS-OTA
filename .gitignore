@@ -5,7 +5,12 @@ dist/
 .env.*
 *.db
 .build-general/
+.build-technical/
 dist-general/
 server/node_modules/
 !server/.env.example
 db-config.json
+# License files are issued per installation
+license*.json
+licence*.json
+*.lmlic

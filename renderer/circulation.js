@@ -3,7 +3,7 @@
 // Used by: renderer/index.html, which loads it with <script src="circulation.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
-// settings.js, start.js. Keep that order in index.html when adding or renaming a file.
+// settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Circulation ================= */
 function notFound(kind, bookNo) {
@@ -59,7 +59,12 @@ async function resetCirc(kind) {
   setHtml($(`#${kind}-result`), circGuide(kind));
   $(`#${kind}-scan`).value = '';
   $(`#${kind}-scan`).focus();
-  await Promise.all([loadRecords(kind), loadCircSummary(), refreshLookups()]);
+  await Promise.all([loadRecords(kind), loadCircSummary(), refreshLookups(), loadCircSettings()]);
+}
+
+// Loan duration and the "borrower on return" rule may have been changed on another computer.
+async function loadCircSettings() {
+  state.settings = { ...state.settings, ...(await rpc('getSettings')) };
 }
 
 // "At a glance" numbers shown beside the Issue and Return forms.
@@ -151,8 +156,8 @@ function renderRecords(kind) {
   const { pages, start, slice } = pageSlice(st.rows, st);
   const dash = '<span class="muted">—</span>';
   const head = issue
-    ? '<th class="idx">#</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Remarks</th>'
-    : '<th class="idx">#</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Returned By</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th>';
+    ? '<th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Remarks</th>'
+    : '<th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Returned By</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th>';
   const row = (r, i) =>
     issue
       ? `<tr><td class="idx muted">${start + i + 1}</td><td class="mono">${esc(r.book_no)}</td><td class="strong wrap">${esc(r.book_name)}</td>
@@ -189,6 +194,28 @@ async function lookup(kind) {
   else renderReturn(res);
 }
 
+// Barcode No suggestions while typing: available books on the Issue page, issued books on the
+// Return page. Picking one looks the book up straight away. Attached before the Enter handler
+// below so that Enter on a highlighted suggestion picks it instead of looking up the typed text.
+const SCAN_SUGGEST = {
+  issue: { status: 'Available', head: 'Available books' },
+  return: { status: 'Issued', head: 'Issued books' },
+};
+['issue', 'return'].forEach((kind) => {
+  const { status, head } = SCAN_SUGGEST[kind];
+  attachSuggest($(`#${kind}-scan`), null, {
+    head,
+    iconName: 'book',
+    fetchItems: async (query) =>
+      (await rpc('suggestBooks', { query, status })).map((b) => ({
+        value: b.book_no,
+        text: b.name,
+        sub: b.issue_user ? `Issued to ${b.issue_user} · due ${fmtDate(b.due_date)}` : '',
+      })),
+    onPick: () => lookup(kind),
+  });
+});
+
 ['issue', 'return'].forEach((kind) => {
   $(`#${kind}-scan`).addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -221,7 +248,7 @@ function renderIssue({ book, overdueDays }) {
         <div class="issue-fields">
           <label class="field"><span>Name <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" placeholder="Start typing — names used before are suggested" /></label>
           <label class="field"><span>Rank</span><input name="rank" maxlength="${LIMITS.detail}" /></label>
-          <label class="field"><span>Number</span><input name="number" maxlength="${LIMITS.detail}" spellcheck="false" /></label>
+          <label class="field"><span>Number</span><input name="number" maxlength="${LIMITS.detail}" spellcheck="false" placeholder="Numbers used before are suggested" /></label>
           <label class="field"><span>Dept</span><input name="dept" maxlength="${LIMITS.detail}" /></label>
           <label class="field"><span>Loan period (days) <em>*</em></span><input name="duration" type="number" min="1" max="365" step="1" value="${dur}" /></label>
         </div>
@@ -243,6 +270,23 @@ function renderIssue({ book, overdueDays }) {
   const form = $('#issue-form');
   const errBox = $('.form-error', form);
   attachSuggest(form.userName, () => state.lookups.borrowers);
+  // A Number used before: picking it fills in that borrower's Name, Rank and Dept from their last issue.
+  const known = () => state.lookups.borrowerDetails || [];
+  attachSuggest(
+    form.number,
+    () => known().map((b) => ({ value: b.number, text: b.name, sub: [b.rank, b.dept].filter(Boolean).join(' · ') })),
+    {
+      head: 'Borrowers seen before',
+      onPick: (number) => {
+        const b = known().find((x) => x.number === number);
+        if (!b) return;
+        form.userName.value = b.name;
+        form.rank.value = b.rank || '';
+        form.dept.value = b.dept || '';
+        [form.userName, form.rank, form.dept].forEach((el) => showFieldError(el, ''));
+      },
+    }
+  );
   attachCounters(form);
   form.userName.focus();
   form.duration.addEventListener('input', () => {
@@ -297,6 +341,7 @@ function renderReturn({ book, overdueDays }) {
     return;
   }
   const late = overdueDays > 0;
+  const onlyBorrower = state.settings.allowOtherReturner === false;
   const info = (label, value, cls = '') => `<div class="info"><span>${label}</span><strong class="${cls}">${value}</strong></div>`;
   setHtml(box, `<div class="card flush issue-sheet">${issueBookHead(book)}
     <form method="post" id="return-form" autocomplete="off" novalidate>
@@ -319,7 +364,8 @@ function renderReturn({ book, overdueDays }) {
         }
         <div class="sheet-title sheet-title-gap">${icon('in')}Return details</div>
         <div class="issue-fields">
-          <label class="field"><span>Name <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" value="${esc(book.issue_user)}" /></label>
+          <label class="field"><span>Returned by <em>*</em></span><input name="userName" maxlength="${LIMITS.person}" value="${esc(book.issue_user)}" ${onlyBorrower ? 'readonly' : ''} />
+            <span class="hint">${onlyBorrower ? 'Only the borrower can return this book (Settings → Borrower on return).' : 'Change the name if another person is returning the book.'}</span></label>
           <div class="field"><span>Return date</span><div class="due-preview">${icon('calendar')}<span>${esc(fmtDate(isoToday()))}</span></div></div>
         </div>
         <label class="field"><span>Remarks</span><textarea name="remarks" rows="2" maxlength="${LIMITS.remarks}" placeholder="e.g. book condition"></textarea></label>
@@ -333,7 +379,7 @@ function renderReturn({ book, overdueDays }) {
   const form = $('#return-form');
   const errBox = $('.form-error', form);
   attachCounters(form);
-  attachSuggest(form.userName, () => state.lookups.borrowers);
+  if (!onlyBorrower) attachSuggest(form.userName, () => state.lookups.borrowers);
   form.remarks.focus();
   $('[data-cancel]', form).addEventListener('click', () => resetCirc('return'));
   form.addEventListener('submit', async (e) => {
