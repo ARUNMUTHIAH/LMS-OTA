@@ -9,6 +9,7 @@ const { DirectDB, testConnection } = require('./src/direct');
 const reports = require('./src/reports');
 const importer = require('./src/importer');
 const { today } = require('./src/dates');
+const { toSqlDump, parseSqlDump } = require('./src/sqldump');
 const { LicenseManager, LicenseError } = require('./src/license');
 
 const APP_NAME = 'Technical Library - CGAS Chennai';
@@ -408,11 +409,11 @@ function registerIpc() {
   handle('db:backup', async () => {
     const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Save Library Backup',
-      defaultPath: path.join(app.getPath('documents'), `${APP_NAME} Backup ${today()}.db`),
-      filters: [{ name: 'Library Backup', extensions: ['db'] }],
+      defaultPath: path.join(app.getPath('documents'), `${APP_NAME} Backup ${today()}.sql`),
+      filters: [{ name: 'Library Backup (SQL)', extensions: ['sql'] }],
     });
     if (canceled || !filePath) return null;
-    await fsp.writeFile(filePath, await backupBytes());
+    await fsp.writeFile(filePath, await backupSql());
     return filePath;
   });
 
@@ -420,17 +421,23 @@ function registerIpc() {
     const { canceled, filePaths } = await fileDialog.showOpenDialog(mainWindow, {
       title: 'Restore Library Backup',
       properties: ['openFile'],
-      filters: [{ name: 'Library Backup', extensions: ['db'] }],
+      filters: [{ name: 'Library Backup', extensions: ['sql', 'db'] }],
     });
     if (canceled || !filePaths.length) return null;
-    // Check the file and bring it up to the current layout before anything on the server changes.
-    const local = await LibraryDB.open(null);
-    local.restoreFrom(await fsp.readFile(filePaths[0]));
-    const data = local.exportData();
+    // Check the file before anything on the server changes: a .sql dump (this version's tables), or an
+    // older .db backup, brought up to the current layout.
+    const bytes = await fsp.readFile(filePaths[0]);
+    let data;
+    if (/\.sql$/i.test(filePaths[0])) data = parseSqlDump(bytes.toString('utf8'), { prefix: TABLE_PREFIX });
+    else {
+      const local = await LibraryDB.open(null);
+      local.restoreFrom(bytes);
+      data = local.exportData();
+    }
     // Keep a safety copy of the server's current data before replacing it (the last 5 are kept).
-    const safety = path.join(app.getPath('userData'), `before-restore-${Date.now()}.db`);
+    const safety = path.join(app.getPath('userData'), `before-restore-${Date.now()}.sql`);
     await fsp.mkdir(path.dirname(safety), { recursive: true });
-    await fsp.writeFile(safety, await backupBytes());
+    await fsp.writeFile(safety, await backupSql());
     await rotate(path.dirname(safety), 'before-restore-', 5);
     await lib.replaceData(data);
     remote.token = null;
@@ -539,10 +546,10 @@ async function autoBackupView() {
   return { enabled, folder, keep, last, lastFile, error, count };
 }
 
-// Backup files in `dir` named "<prefix>*.db", oldest first (the names end in a date or a time).
+// Backup files in `dir` named "<prefix>*.sql" (or older "*.db"), oldest first (the names end in a date or a time).
 async function backupFiles(dir, prefix) {
   const names = await fsp.readdir(dir).catch(() => []);
-  return names.filter((f) => f.startsWith(prefix) && f.endsWith('.db')).sort();
+  return names.filter((f) => f.startsWith(prefix) && /\.(sql|db)$/.test(f)).sort();
 }
 
 // Deletes the oldest backup files beyond the newest `keep`.
@@ -553,11 +560,23 @@ async function rotate(dir, prefix, keep) {
 
 const rotateAutoBackups = () => rotate(autoBackup.folder, AUTO_BACKUP_PREFIX, autoBackup.keep);
 
-// A backup file in the usual format (SQLite .db), made from all of the server's data.
-async function backupBytes() {
-  const local = await LibraryDB.open(null);
-  local.replaceData(await lib.exportData());
-  return local.exportBytes();
+// Tables of this version in the library database: books, ... or general_books, ...
+const TABLE_PREFIX = EDITION === 'general' ? 'general_' : '';
+
+// A backup file: a MySQL dump (.sql) of the whole library database, both versions' tables, so the
+// Technical and General apps make the same file. An API server without exportAllData (older
+// version) gives this version's tables only.
+async function backupSql() {
+  const database = dbConfig ? dbConfig.database : '';
+  let sets;
+  try {
+    const all = await lib.exportAllData();
+    sets = [{ prefix: '', data: all.technical }, { prefix: 'general_', data: all.general }];
+  } catch (e) {
+    if (!(e instanceof UserError) || e instanceof AuthError) throw e;
+    sets = [{ prefix: TABLE_PREFIX, data: await lib.exportData() }];
+  }
+  return toSqlDump(sets, { database, title: 'Library Database' });
 }
 
 // Writes today's backup unless one exists already (force: overwrite it with the current data).
@@ -566,10 +585,10 @@ async function runAutoBackup({ force = false } = {}) {
   if (!session || !autoBackup || (!autoBackup.enabled && !force)) return null;
   const day = today();
   if (!force && autoBackup.last === day) return null;
-  const file = path.join(autoBackup.folder, `${AUTO_BACKUP_PREFIX}${day}.db`);
+  const file = path.join(autoBackup.folder, `${AUTO_BACKUP_PREFIX}${day}.sql`);
   try {
     await fsp.mkdir(autoBackup.folder, { recursive: true });
-    await fsp.writeFile(file + '.tmp', await backupBytes());
+    await fsp.writeFile(file + '.tmp', await backupSql());
     await fsp.rename(file + '.tmp', file);
     await rotateAutoBackups();
     await saveAutoBackupConfig({ ...autoBackup, last: day, lastFile: file, error: '' });

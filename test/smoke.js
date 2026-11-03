@@ -32,6 +32,8 @@ const expectUserError = (fn, pattern) =>
   // Login
   assert.ok(db.verifyLogin('admin', firstPw), 'first account can sign in');
   assert.strictEqual(db.verifyLogin('admin', 'wrong'), null);
+  assert.strictEqual(db.verifyLogin('Admin', firstPw), null, 'username is case-sensitive');
+  assert.strictEqual(db.verifyLogin('ADMIN', firstPw), null, 'username is case-sensitive');
   assert.strictEqual(db.getSettings().defaultDuration, 14);
 
   // Book entry: mandatory fields, uniqueness

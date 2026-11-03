@@ -120,6 +120,12 @@ function createApi(pool, { sessionHours = 12 } = {}) {
     borrowerNames: (db) => db.borrowerNames(),
     borrowerDetails: (db) => db.borrowerDetails(),
     exportData: (db) => db.exportData(),
+    // Both editions' tables, for a backup of the whole database: { technical: {...}, general: {...} }.
+    async exportAllData() {
+      const out = {};
+      for (const [edition, db] of Object.entries(dbs)) out[edition] = await db.exportData();
+      return out;
+    },
     async replaceData(db, [data], ctx) {
       await db.replaceData(data);
       dropSessions(ctx.edition); // accounts may differ in the restored data: everyone signs in again

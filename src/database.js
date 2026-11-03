@@ -262,7 +262,8 @@ class LibraryDB {
   }
 
   verifyLogin(username, password) {
-    const user = this.get('SELECT id, username, password_hash, salt, active FROM users WHERE username = ?', [clean(username)]);
+    // The username must match exactly, capitals included (the column itself compares without case).
+    const user = this.get('SELECT id, username, password_hash, salt, active FROM users WHERE username = ? COLLATE BINARY', [clean(username)]);
     if (!user || typeof password !== 'string') return null;
     const a = Buffer.from(hashPassword(password, user.salt), 'hex');
     const b = Buffer.from(user.password_hash, 'hex');

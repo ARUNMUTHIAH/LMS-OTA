@@ -14,7 +14,7 @@ const OUT = path.join(ROOT, 'dist-general');
 
 const OLD_NAME = 'Technical Library - CGAS Chennai';
 const NEW_NAME = 'General Library - CGAS Chennai';
-const VERSION = '2.5.0';
+const VERSION = '1.0.0';
 
 stageApp(STAGE);
 const edit = (rel, fn) => editIn(STAGE, rel, fn);

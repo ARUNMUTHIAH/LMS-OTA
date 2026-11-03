@@ -220,8 +220,9 @@ class MySqlLibraryDB {
     return user;
   }
 
+  // The username must match exactly, capitals included (the column itself compares without case).
   async verifyLogin(username, password) {
-    const user = await this.get(`SELECT id, username, password_hash, salt, active FROM ${this.t.users} WHERE username = ?`, [
+    const user = await this.get(`SELECT id, username, password_hash, salt, active FROM ${this.t.users} WHERE username COLLATE utf8mb4_bin = ?`, [
       clean(username),
     ]);
     if (!user || typeof password !== 'string') return null;

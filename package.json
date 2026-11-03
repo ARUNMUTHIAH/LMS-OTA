@@ -1,7 +1,7 @@
 {
   "name": "ota-campus-library",
   "productName": "Technical Library - CGAS Chennai",
-  "version": "1.6.0",
+  "version": "1.0.0",
   "description": "Technical Library - CGAS Chennai — Library Management System",
   "main": "main.js",
   "author": "2CQR",
