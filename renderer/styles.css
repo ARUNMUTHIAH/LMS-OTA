@@ -127,8 +127,6 @@ input, select, textarea { font-family: inherit; font-size: 13.5px; color: var(--
 .login-hint { margin-top: 14px; font-size: 12.5px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); padding: 8px 10px; border-radius: var(--radius-sm); }
 .login-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; font-size: 12px; color: var(--muted); }
 .login-foot svg { width: 13px; height: 13px; }
-.login-license { color: var(--green); font-weight: 500; text-align: center; flex-wrap: wrap; }
-.login-license.warn { color: var(--amber, #b45309); }
 .shake { animation: shake .3s; }
 @keyframes shake { 25%, 75% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
 

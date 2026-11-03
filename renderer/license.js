@@ -97,19 +97,6 @@ function licenseReminder() {
   toast(`The software license ends ${left === 0 ? 'today' : `in ${plural(left, 'day')}`} (${fmtDate(licenseInfo.expiryDate)}). Ask the administrator for a renewal.`, 'info');
 }
 
-// Sign-in screen: who the license is for and until when (amber in the last LICENSE_REMIND_DAYS).
-function renderLoginLicense() {
-  const st = licenseInfo;
-  const box = $('#login-license');
-  box.hidden = !(st && st.valid && st.expiryDate);
-  if (box.hidden) return;
-  const left = licenseDaysLeft(st);
-  const soon = left != null && left <= LICENSE_REMIND_DAYS;
-  const leftText = soon ? ` · ${left === 0 ? 'last day' : `${plural(left, 'day')} left`}` : '';
-  box.classList.toggle('warn', soon);
-  setHtml(box, `${icon('calendar')}License valid until ${esc(fmtDate(st.expiryDate))}${st.licensedTo ? ` · ${esc(st.licensedTo)}` : ''}${leftText}`);
-}
-
 // manage: opened from the sign-in screen while the license is still valid (to renew early).
 function showLicense(st, { manage = false } = {}) {
   state.user = null;

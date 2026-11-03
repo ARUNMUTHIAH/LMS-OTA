@@ -62,7 +62,6 @@ async function showLogin() {
   if (state.user) return;
   $('#license-screen').hidden = true;
   $('#login-screen').hidden = false;
-  renderLoginLicense();
   $('#login-username').value = '';
   $('#login-password').value = '';
   if ($('#login-password').hidePassword) $('#login-password').hidePassword();
