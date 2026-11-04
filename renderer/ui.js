@@ -72,7 +72,7 @@ function emptyState(iconName, text) {
 // rows that are matched on value and show text / sub beside it.
 // With opts.fetchItems(q) instead, the matches come from the server: an async function returning
 // [{ value, text, sub }] already filtered (used for the Barcode No on the Issue / Return pages).
-// opts.head: list heading; opts.iconName: icon per row; opts.onPick(value): runs after a pick.
+// opts.head: list heading; opts.iconName: icon per row; opts.onPick(value, item): runs after a pick.
 function attachSuggest(input, getItems, opts = {}) {
   const { fetchItems = null, head = 'Used before', iconName = 'user', onPick = null } = opts;
   if (input.dataset.suggest) return;
@@ -152,7 +152,7 @@ function attachSuggest(input, getItems, opts = {}) {
     close();
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    if (onPick) onPick(items[i].value);
+    if (onPick) onPick(items[i].value, items[i]);
   };
   input.addEventListener('input', fetchItems ? debounce(render, 180) : render);
   input.addEventListener('keydown', (e) => {

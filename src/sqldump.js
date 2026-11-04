@@ -53,6 +53,8 @@ const COLUMNS = {
     ['password_hash', `char(128) ${C} NOT NULL`],
     ['salt', `char(32) ${C} NOT NULL`],
     ['active', "tinyint(1) NOT NULL DEFAULT '1'"],
+    ['role', `varchar(20) ${C} NOT NULL DEFAULT 'librarian'`],
+    ['permissions', `varchar(255) ${C} DEFAULT NULL`],
   ],
 };
 

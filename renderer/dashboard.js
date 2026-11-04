@@ -68,6 +68,7 @@ async function loadDashboard() {
 $('#tile-overdue').addEventListener('click', () => attempt(showOverdueModal));
 $$('.tile[data-goto]').forEach((t) =>
   t.addEventListener('click', () => {
+    if (!can('books')) return; // no Book Entry for this account
     const status = { books: '', circulation: 'Issued', available: 'Available' }[t.dataset.goto];
     go('books', { status });
   })
@@ -91,12 +92,14 @@ async function showOverdueModal() {
         <div class="table-wrap modal-table" data-table></div>
         <div class="pager" data-pager></div>`
       : emptyState('check', 'Great — no books are overdue right now.'),
-    foot: `<button class="btn btn-ghost left" data-report>${icon('chart')}Open Overdue Report</button><button class="btn btn-primary" data-close>Close</button>`,
+    foot: `${can('reports') ? `<button class="btn btn-ghost left" data-report>${icon('chart')}Open Overdue Report</button>` : ''}<button class="btn btn-primary" data-close>Close</button>`,
   });
-  $('[data-report]', m.el).addEventListener('click', () => {
-    m.close();
-    go('reports', { report: 'overdue' });
-  });
+  if ($('[data-report]', m.el)) {
+    $('[data-report]', m.el).addEventListener('click', () => {
+      m.close();
+      go('reports', { report: 'overdue' });
+    });
+  }
   if (!rows.length) return;
 
   const render = () => {

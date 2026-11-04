@@ -72,6 +72,7 @@
 
   <!-- ============ LOGIN ============ -->
   <section id="login-screen" class="login-screen" hidden>
+    <button type="button" class="icon-btn login-settings" id="login-settings-btn" title="Settings" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
     <div class="login-panel">
       <div class="login-brand">
         <img src="assets/icon.png" alt="" />
@@ -124,7 +125,7 @@
       <nav class="nav">
         <a href="#" data-page="dashboard" class="nav-item" title="Dashboard"><svg><use href="#i-grid"/></svg><span>Dashboard</span></a>
         <a href="#" data-page="books" class="nav-item" title="Book Entry"><svg><use href="#i-books"/></svg><span>Book Entry</span></a>
-        <div class="nav-label">Circulation</div>
+        <div class="nav-label nav-label-circ">Circulation</div>
         <a href="#" data-page="issue" class="nav-item" title="Issue Book"><svg><use href="#i-out"/></svg><span>Issue Book</span></a>
         <a href="#" data-page="return" class="nav-item" title="Return Book"><svg><use href="#i-in"/></svg><span>Return Book</span></a>
         <div class="nav-label">Administration</div>
@@ -132,7 +133,7 @@
         <a href="#" data-page="settings" class="nav-item" title="Settings"><svg><use href="#i-gear"/></svg><span>Settings</span></a>
       </nav>
       <div class="sidebar-foot">
-        <div class="who"><div class="avatar" id="avatar">A</div><div><strong id="who-name">admin</strong><span>Librarian</span></div></div>
+        <div class="who"><div class="avatar" id="avatar">A</div><div><strong id="who-name">admin</strong><span id="who-role">Librarian</span></div></div>
         <button class="icon-btn ghost-light" id="logout-btn" title="Sign out"><svg><use href="#i-logout"/></svg></button>
       </div>
     </aside>
@@ -202,12 +203,15 @@
         <div class="toolbar">
           <div class="search">
             <svg><use href="#i-search"/></svg>
-            <input id="book-search" type="search" maxlength="100" placeholder="Search by barcode no, description, LF or CAT…" />
+            <input id="book-search" type="search" maxlength="100" placeholder="Search by barcode no, description, LF, CAT or location…" />
           </div>
           <select id="book-filter-status" class="select">
             <option value="">All statuses</option>
             <option>Available</option>
             <option>Issued</option>
+          </select>
+          <select id="book-filter-location" class="select" title="Location (LOC)">
+            <option value="">All locations</option>
           </select>
           <div class="spacer"></div>
           <button class="btn btn-soft" id="import-books-btn"><svg><use href="#i-sheet"/></svg>Import Excel</button>
@@ -326,7 +330,7 @@
             <span class="pill pill-indigo" id="rep-summary"></span>
           </div>
           <div class="table-tools">
-            <div class="search"><svg><use href="#i-search"/></svg><input id="rep-search" type="search" maxlength="100" placeholder="Search in this report…" /></div>
+            <div class="search"><svg><use href="#i-search"/></svg><input id="rep-search" type="search" maxlength="100" placeholder="Search all columns in this report…" /></div>
           </div>
           <div id="report-table" class="table-wrap"></div>
           <div class="pager" id="report-pager"></div>
@@ -369,7 +373,7 @@
             </div>
           </form>
 
-          <div class="card settings-card">
+          <div class="card settings-card" id="backup-card">
             <div class="card-head"><h3><svg><use href="#i-db"/></svg>Backup &amp; restore</h3></div>
             <p class="muted">Save a copy of all library data to a file whenever you like — for example on a USB drive. Restoring replaces the current data with the backup.</p>
             <div class="field">
@@ -415,16 +419,6 @@
             <div class="card-foot">
               <button class="btn btn-ghost left" type="button" id="dbconn-reset" hidden>Use built-in connection</button>
               <button class="btn btn-primary" type="button" id="dbconn-change"><svg><use href="#i-edit"/></svg>Change connection…</button>
-            </div>
-          </div>
-
-          <div class="card settings-card span-all" id="license-card">
-            <div class="card-head"><h3><svg><use href="#i-lock"/></svg>Software license</h3><span class="pill" id="license-pill"></span></div>
-            <p class="muted">To renew, click Renew License and email the request code to the administrator, then load the license file sent back.</p>
-            <div class="dbconn-grid" id="license-grid"></div>
-            <div class="card-foot">
-              <button class="btn btn-soft" type="button" id="license-renew"><svg><use href="#i-lock"/></svg>Renew License…</button>
-              <button class="btn btn-primary" type="button" id="license-load-set"><svg><use href="#i-file"/></svg>Load License File</button>
             </div>
           </div>
 

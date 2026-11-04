@@ -27,69 +27,6 @@ function licenseDaysLeft(st) {
   return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(ty, tm - 1, td)) / 86400000);
 }
 
-/* ----- Software license card in Settings ----- */
-async function loadLicenseCard() {
-  licenseInfo = await rpc('licenseStatus');
-  renderLicenseCard(licenseInfo);
-}
-
-function renderLicenseCard(st) {
-  const left = licenseDaysLeft(st);
-  const daysText = left == null ? '' : left === 0 ? 'Last day' : plural(left, 'day');
-  const item = (label, value) => `<div><span>${label}</span><strong title="${esc(value)}">${esc(value) || '—'}</strong></div>`;
-  setHtml($('#license-grid'), item('Licensed to', st.licensedTo) + item('Client ID', st.clientId) + item('Valid until', st.expiryDate ? fmtDate(st.expiryDate) : '') + item('Remaining', daysText));
-  const soon = left != null && left <= LICENSE_REMIND_DAYS;
-  $('#license-pill').textContent = st.valid ? (soon ? 'Ends soon' : 'Active') : 'Not valid';
-  $('#license-pill').classList.toggle('pill-indigo', st.valid && !soon);
-}
-
-// Asks for the Client ID, then shows the request code to email to the administrator.
-function openLicenseRenew() {
-  const m = openModal({
-    title: 'Renew License',
-    iconName: 'lock',
-    size: 'small',
-    body: `<form method="post" id="license-renew-form" autocomplete="off" novalidate>
-      <label class="field"><span>Client ID <em>*</em></span><input name="clientId" maxlength="50" spellcheck="false" value="${esc((licenseInfo && licenseInfo.clientId) || '')}" /></label>
-      <div class="form-error" hidden></div>
-      <button type="submit" hidden></button>
-    </form>`,
-    foot: `<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" data-ok>Get Request Code</button>`,
-  });
-  const form = $('#license-renew-form', m.el);
-  const errBox = $('.form-error', form);
-  setTimeout(() => form.clientId.focus(), 30);
-  async function submit() {
-    errBox.hidden = true;
-    if (!validateFields([[form.clientId, (v) => (v.trim() ? '' : 'Enter the Client ID.')]])) return;
-    const res = await window.api.licenseRequest(form.clientId.value);
-    if (!res.ok) {
-      errBox.textContent = res.error;
-      errBox.hidden = false;
-      return;
-    }
-    m.close();
-    showLicenseRequest(res.data);
-  }
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    submit();
-  });
-  $('[data-ok]', m.el).addEventListener('click', submit);
-}
-
-$('#license-renew').addEventListener('click', () => openLicenseRenew());
-
-$('#license-load-set').addEventListener('click', (e) =>
-  withBusy(e.currentTarget, async () => {
-    const st = await rpc('licenseLoad');
-    if (!st) return; // cancelled
-    licenseInfo = st;
-    renderLicenseCard(st);
-    toast(`License loaded. Valid until ${fmtDate(st.expiryDate)}.`);
-  })
-);
-
 // After sign-in: a reminder when the license ends within LICENSE_REMIND_DAYS.
 function licenseReminder() {
   const left = licenseDaysLeft(licenseInfo);

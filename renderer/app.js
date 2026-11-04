@@ -10,7 +10,7 @@ const state = {
   user: null,
   settings: { defaultDuration: 14 },
   page: 'dashboard',
-  books: { query: '', status: '', page: 1, size: 25, rows: [] },
+  books: { query: '', status: '', location: '', page: 1, size: 25, rows: [] },
   report: 'books',
   lookups: { categories: [], locations: [], racks: [], borrowers: [], borrowerDetails: [] },
 };
@@ -24,8 +24,18 @@ const PAGES = {
   settings: ['Settings', 'Users, loan duration, return rules and data backup'],
 };
 
-// Settings asks for the signed-in librarian's password each time it is opened from another page.
+// User access (Settings → Users): which screens and actions the signed-in account may use.
+// Screens it may not use are hidden; the server refuses their actions too.
+const ACCESS = window.Rules.access;
+const userPerms = () => (state.user ? (state.user.settingsOnly ? ['settings'] : ACCESS.permsOf(state.user)) : []);
+const can = (perm) => userPerms().includes(perm);
+// The first page in the sidebar this account may open.
+const firstPage = () => Object.keys(PAGES).find(can) || 'dashboard';
+
+// Settings asks for the Settings password each time it is opened from another page.
 async function go(page, opts = {}) {
+  if (!can(page)) page = firstPage();
+  if (!can('books_edit')) opts = { ...opts, newBook: false };
   if (page === 'settings' && state.page !== 'settings' && !(await unlockSettings())) return;
   state.page = page;
   $$('.nav-item').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
@@ -84,6 +94,7 @@ async function showLogin() {
   if (needsSetup && $('#setup-form').hidden) {
     $('#login-form').hidden = true;
     $('#setup-form').hidden = false;
+    $('#login-settings-btn').hidden = true;
     $('#setup-form').reset();
     $('#setup-error').hidden = true;
     clearFieldErrors($('#setup-form'));
@@ -93,6 +104,7 @@ async function showLogin() {
   if (!needsSetup && $('#login-form').hidden) {
     $('#setup-form').hidden = true;
     $('#login-form').hidden = false;
+    $('#login-settings-btn').hidden = false;
     focusIfIdle($('#login-username'));
   }
   window.api.loginHint().then((hint) => {
@@ -174,17 +186,80 @@ $('#login-form').addEventListener('submit', async (e) => {
   }
 });
 
+// Settings from the sign-in screen: the gear asks for the Settings password and opens Settings on
+// its own (no librarian account; the other pages stay locked until someone signs in).
+$('#login-settings-btn').addEventListener('click', () => {
+  const m = openModal({
+    title: 'Open Settings',
+    iconName: 'lock',
+    size: 'small',
+    body: `<form method="post" id="login-settings-form" autocomplete="off" novalidate>
+      <p class="muted unlock-help">Enter the Settings password to open Settings.</p>
+      <label class="field"><span>Password <em>*</em></span><input name="password" type="password" maxlength="64" /></label>
+      <button type="submit" hidden></button>
+    </form>`,
+    foot: `<button class="btn btn-ghost" data-close>Cancel</button><button class="btn btn-primary" data-ok>${icon('gear')}Open Settings</button>`,
+  });
+  const form = $('#login-settings-form', m.el);
+  const btn = $('[data-ok]', m.el);
+  enhancePasswords(form);
+  setTimeout(() => form.password.focus(), 30);
+  async function submit() {
+    if (!validateFields([[form.password, (v) => (v ? '' : 'Enter the password.')]])) return;
+    btn.disabled = true;
+    try {
+      const res = await window.api.settingsLogin(form.password.value);
+      if (res.license) {
+        m.close();
+        return showLogin();
+      }
+      if (!res.ok) {
+        showFieldError(form.password, res.error);
+        form.password.select();
+        return;
+      }
+      m.close();
+      state.user = res.data.user;
+      if (res.data.settings) state.settings = res.data.settings;
+      enterApp();
+      if (res.data.user.offline) {
+        toast(`The library database cannot be reached (${res.data.error}). Only the database connection and automatic backup options are available until it is fixed.`, 'info');
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submit();
+  });
+  btn.addEventListener('click', submit);
+});
+
 function enterApp() {
   $('#login-screen').hidden = true;
   $('#app').hidden = false;
   $('#who-name').textContent = state.user.username;
   $('#avatar').textContent = state.user.username.charAt(0);
+  // Opened with the Settings password: only Settings, and "Sign out" goes back to the sign-in.
+  const settingsOnly = !!state.user.settingsOnly;
+  document.body.classList.toggle('settings-only', settingsOnly);
+  document.body.classList.toggle('settings-offline', !!state.user.offline);
+  // Screens and buttons this account may not use are hidden by a "no-<permission>" class (styles.css).
+  for (const k of ACCESS.ALL) document.body.classList.toggle(`no-${k}`, !settingsOnly && !can(k));
+  $('#who-role').textContent = settingsOnly ? 'Settings only' : ACCESS.accessLabel(userPerms());
   const now = new Date();
   $('#today-label').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (settingsOnly) {
+    state.page = 'settings'; // already unlocked by the Settings password
+    go('settings');
+    return;
+  }
   refreshLookups();
-  go('dashboard');
+  state.page = '';
+  go(firstPage());
   licenseReminder();
-  if (state.settings.defaultCredentials) {
+  if (state.settings.defaultCredentials && can('settings')) {
     toast('You are using the default password. Change it in Settings → Users.', 'info', [
       { label: 'Open Settings', run: () => go('settings') },
     ]);
@@ -211,5 +286,9 @@ async function refreshLookups() {
     fill($('#rf-category'), shelf.categories);
     fill($('#rf-location'), shelf.locations);
     fill($('#rf-rack'), shelf.racks);
+    // Book Entry's location filter: keeps the chosen location while it still exists.
+    const loc = $('#book-filter-location');
+    setHtml(loc, '<option value="">All locations</option>' + shelf.locations.map((v) => `<option>${esc(v)}</option>`).join(''));
+    loc.value = shelf.locations.includes(state.books.location) ? state.books.location : '';
   });
 }

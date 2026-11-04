@@ -6,12 +6,41 @@
 
 const crypto = require('crypto');
 const { today, isValidDate, addDays, display, daysBetween } = require('../src/dates');
-const { checks } = require('../renderer/rules');
+const { checks, access } = require('../renderer/rules');
 
 const DEFAULT_USERNAME = 'admin';
 const TABLES = ['books', 'issues', 'users', 'settings'];
 
+// Lists that show books are in Barcode No order: by letter prefix A-Z, then by number
+// (BAG-001, CAG-001, CAG-002, CAG-010, DAG-001). Capitals, spaces and dashes are ignored, so
+// "cag 001", "CAG001" and "CAG-001" sort together. Ties keep the query's own order.
+const barcodeOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base', ignorePunctuation: true });
+const byBarcode = (rows) => rows.sort((a, b) => barcodeOrder.compare(String(a.book_no || ''), String(b.book_no || '')));
+
 class UserError extends Error {}
+
+// User access: each account has a list of permissions (screens and actions, see access in
+// renderer/rules.js), enforced in server/api.js. The old role column is kept in step: "librarian" for
+// Full access, "viewer" for anything less, so an older copy of the app treats a limited account as
+// View only rather than giving it everything.
+const ROLES = ['librarian', 'viewer'];
+const checkRole = (r) => (ROLES.includes(r) ? null : 'Choose an access level: Librarian or View only.');
+const roleFor = (perms) => (perms.length === access.ALL.length ? 'librarian' : 'viewer');
+// A users row as the app sees it: { id, username, active, role, perms }.
+function userOut(u) {
+  const perms = access.permsOf(u);
+  return { id: u.id, username: u.username, active: u.active === 1 || u.active === true, role: roleFor(perms), perms };
+}
+// The permissions asked for: a list, or (older callers) a role; else the fallback.
+function wantedPerms({ perms, role }, fallback) {
+  if (Array.isArray(perms)) return access.normalizePerms(perms);
+  if (role != null) {
+    check(checkRole(role));
+    return access.permsOf({ role });
+  }
+  return fallback;
+}
+const USER_COLS = 'id, username, active, role, permissions';
 
 function check(...messages) {
   const msg = messages.find(Boolean);
@@ -88,6 +117,8 @@ function schema(p) {
       password_hash CHAR(128)    NOT NULL,
       salt          CHAR(32)     NOT NULL,
       active        TINYINT(1)   NOT NULL DEFAULT 1,
+      role          VARCHAR(20)  NOT NULL DEFAULT 'librarian',
+      permissions   VARCHAR(255) NULL,
       PRIMARY KEY (id),
       UNIQUE KEY uq_${p}users_username (username)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -118,6 +149,7 @@ class MySqlLibraryDB {
     );
     const tables = new Set(cols.map((r) => r.t));
     const issueCols = cols.filter((r) => r.t === this.t.issues).map((r) => r.c);
+    const userCols = cols.filter((r) => r.t === this.t.users).map((r) => r.c);
     const created = !tables.has(this.t.settings);
     if (TABLES.some((n) => !tables.has(this.t[n]))) {
       for (const sql of schema(this.p)) await this.pool.query(sql);
@@ -132,6 +164,13 @@ class MySqlLibraryDB {
         await this.pool.query(`ALTER TABLE ${this.t.issues} ADD COLUMN ${col} VARCHAR(50) NOT NULL DEFAULT '' AFTER ${after}`);
         issueCols.push(col);
       }
+    }
+    if (tables.has(this.t.users) && !userCols.includes('role')) {
+      await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'librarian' AFTER active`);
+      userCols.push('role');
+    }
+    if (tables.has(this.t.users) && !userCols.includes('permissions')) {
+      await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN permissions VARCHAR(255) NULL AFTER role`);
     }
     // A missing default_duration reads as 14 days anyway (getSettings), so only a new table needs it.
     if (created) await this.pool.query(`INSERT IGNORE INTO ${this.t.settings} (\`key\`, \`value\`) VALUES ('default_duration', '14')`);
@@ -222,19 +261,19 @@ class MySqlLibraryDB {
 
   // The username must match exactly, capitals included (the column itself compares without case).
   async verifyLogin(username, password) {
-    const user = await this.get(`SELECT id, username, password_hash, salt, active FROM ${this.t.users} WHERE username COLLATE utf8mb4_bin = ?`, [
+    const user = await this.get(`SELECT ${USER_COLS}, password_hash, salt FROM ${this.t.users} WHERE username COLLATE utf8mb4_bin = ?`, [
       clean(username),
     ]);
     if (!user || typeof password !== 'string') return null;
     const a = Buffer.from(hashPassword(password, user.salt), 'hex');
     const b = Buffer.from(user.password_hash, 'hex');
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-    return { id: user.id, username: user.username, active: user.active === 1 };
+    return userOut(user);
   }
 
   async getUser(id) {
-    const u = await this.get(`SELECT id, username, active FROM ${this.t.users} WHERE id = ?`, [Number(id)]);
-    return u ? { ...u, active: u.active === 1 } : null;
+    const u = await this.get(`SELECT ${USER_COLS} FROM ${this.t.users} WHERE id = ?`, [Number(id)]);
+    return u ? userOut(u) : null;
   }
 
   async changeCredentials(userId, { currentPassword, newUsername, newPassword } = {}) {
@@ -261,31 +300,36 @@ class MySqlLibraryDB {
 
   // ---------- User management ----------
   async listUsers() {
-    const rows = await this.all(`SELECT id, username, active FROM ${this.t.users} ORDER BY username`);
-    return rows.map((u) => ({ ...u, active: u.active === 1 }));
+    const rows = await this.all(`SELECT ${USER_COLS} FROM ${this.t.users} ORDER BY username`);
+    return rows.map(userOut);
   }
 
-  async createUser({ username, password, active = true } = {}) {
+  async createUser({ username, password, active = true, role, perms } = {}) {
     const name = username == null ? '' : String(username).trim();
     check(checks.username(name), password ? checks.newPassword(password) : 'Password is required.');
+    const list = wantedPerms({ perms, role }, access.ALL);
+    check(list.length ? null : 'Choose at least one screen this user can open.');
     if (await this.get(`SELECT id FROM ${this.t.users} WHERE username = ?`, [name])) {
       throw new UserError('That username is already in use.');
     }
     const salt = crypto.randomBytes(16).toString('hex');
-    const res = await this.run(`INSERT INTO ${this.t.users} (username, password_hash, salt, active) VALUES (?, ?, ?, ?)`, [
-      name,
-      hashPassword(password, salt),
-      salt,
-      active === false ? 0 : 1,
-    ]);
-    return { id: res.insertId, username: name, active: active !== false };
+    const res = await this.run(
+      `INSERT INTO ${this.t.users} (username, password_hash, salt, active, role, permissions) VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, hashPassword(password, salt), salt, active === false ? 0 : 1, roleFor(list), list.join(',')]
+    );
+    return { id: res.insertId, username: name, active: active !== false, role: roleFor(list), perms: list };
   }
 
-  async updateUser(id, { username, password, active } = {}, currentUserId = null) {
-    const user = await this.get(`SELECT id, username, password_hash, salt, active FROM ${this.t.users} WHERE id = ?`, [Number(id)]);
+  async updateUser(id, { username, password, active, role, perms } = {}, currentUserId = null) {
+    const user = await this.get(`SELECT ${USER_COLS}, password_hash, salt FROM ${this.t.users} WHERE id = ?`, [Number(id)]);
     if (!user) throw new UserError('This user no longer exists.');
     const isActive = active == null ? user.active === 1 : active !== false;
     if (!isActive && user.id === currentUserId) throw new UserError('You cannot make the account you are signed in with inactive.');
+    const list = wantedPerms({ perms, role }, access.permsOf(user));
+    check(list.length ? null : 'Choose at least one screen this user can open.');
+    if (!list.includes('settings') && user.id === currentUserId) {
+      throw new UserError('You cannot take Settings access away from the account you are signed in with.');
+    }
     const name = username == null ? '' : String(username).trim();
     check(checks.username(name), checks.newPassword(password));
     if (await this.get(`SELECT id FROM ${this.t.users} WHERE username = ? AND id <> ?`, [name, user.id])) {
@@ -298,13 +342,13 @@ class MySqlLibraryDB {
     }
     await this._transaction(async (cx) => {
       await this.run(
-        `UPDATE ${this.t.users} SET username = ?, password_hash = ?, salt = ?, active = ? WHERE id = ?`,
-        [name, hash, salt, isActive ? 1 : 0, user.id],
+        `UPDATE ${this.t.users} SET username = ?, password_hash = ?, salt = ?, active = ?, role = ?, permissions = ? WHERE id = ?`,
+        [name, hash, salt, isActive ? 1 : 0, roleFor(list), list.join(','), user.id],
         cx
       );
       if (password && user.username.toLowerCase() === DEFAULT_USERNAME) await this._setSetting('default_credentials', '0', cx);
     });
-    return { id: user.id, username: name, active: isActive };
+    return { id: user.id, username: name, active: isActive, role: roleFor(list), perms: list };
   }
 
   async deleteUser(id, currentUserId) {
@@ -348,9 +392,9 @@ class MySqlLibraryDB {
     const where = [];
     const params = [];
     if (q) {
-      where.push('(b.book_no LIKE ? OR b.name LIKE ? OR b.lf LIKE ? OR b.category LIKE ?)');
+      where.push('(b.book_no LIKE ? OR b.name LIKE ? OR b.lf LIKE ? OR b.category LIKE ? OR b.location LIKE ?)');
       const p = likeParam(q);
-      params.push(p, p, p, p);
+      params.push(p, p, p, p, p);
     }
     if (clean(category)) {
       where.push('b.category = ?');
@@ -366,7 +410,7 @@ class MySqlLibraryDB {
     }
     if (status === 'Available') where.push('i.id IS NULL');
     if (status === 'Issued') where.push('i.id IS NOT NULL');
-    return this.all(`${this._bookSelect()} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY b.id DESC`, params);
+    return byBarcode(await this.all(`${this._bookSelect()} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY b.id DESC`, params));
   }
 
   async getBookByNumber(bookNo, cx) {
@@ -609,7 +653,7 @@ class MySqlLibraryDB {
   }
 
   async recentActivity(limit = 12) {
-    return this.all(
+    return byBarcode(await this.all(
       `SELECT action, book_no, book_name, user_name, at, due_date, late FROM (
          SELECT 'Issued' AS action, book_no, book_name, issue_user AS user_name, issued_at AS at, due_date, 0 AS late FROM ${this.t.issues}
          UNION ALL
@@ -618,13 +662,13 @@ class MySqlLibraryDB {
            FROM ${this.t.issues} WHERE return_date IS NOT NULL
        ) AS a ORDER BY at DESC LIMIT ?`,
       [Number(limit) || 12]
-    );
+    ));
   }
 
   async todaysActivity(kind) {
     const t = today();
-    if (kind === 'issue') return this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE issue_date = ? ORDER BY id DESC`, [t]);
-    return this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE return_date = ? ORDER BY returned_at DESC`, [t]);
+    if (kind === 'issue') return byBarcode(await this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE issue_date = ? ORDER BY id DESC`, [t]));
+    return byBarcode(await this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE return_date = ? ORDER BY returned_at DESC`, [t]));
   }
 
   // ---------- Dashboard ----------
@@ -648,7 +692,7 @@ class MySqlLibraryDB {
     ]);
     const total = Number(counts.total);
     const issued = Number(counts.issued);
-    return { today: t, total, issued, available: total - issued, overdue: Number(counts.overdue), dueSoon, recent };
+    return { today: t, total, issued, available: total - issued, overdue: Number(counts.overdue), dueSoon: byBarcode(dueSoon), recent };
   }
 
   // ---------- Reports ----------
@@ -658,14 +702,14 @@ class MySqlLibraryDB {
     const where = ['issue_date <= ?', 'due_date < ?', '(return_date IS NULL OR return_date > ?)'];
     const params = [asOn, asOn, asOn];
     this._textFilters(where, params, { userName, bookNo, q });
-    return this.all(
+    return byBarcode(await this.all(
       `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, due_date, return_date, issue_remarks,
               DATEDIFF(?, due_date) AS days_overdue
          FROM ${this.t.issues}
         WHERE ${where.join(' AND ')}
         ORDER BY days_overdue DESC, book_no`,
       [asOn, ...params]
-    );
+    ));
   }
 
   _textFilters(where, params, { userName = '', bookNo = '', q = '' }) {
@@ -733,7 +777,7 @@ class MySqlLibraryDB {
     }
     this._textFilters(where, params, { userName, bookNo, q });
     const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
-    return this.all(
+    return byBarcode(await this.all(
       `SELECT ${ISSUE_COLS},
               CASE
                    WHEN return_date IS NULL AND due_date < ? THEN 'Overdue'
@@ -743,7 +787,7 @@ class MySqlLibraryDB {
          FROM ${this.t.issues} ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY ${order}`,
       [t, ...params]
-    );
+    ));
   }
 
   // ---------- Backup / restore ----------
@@ -760,7 +804,7 @@ class MySqlLibraryDB {
       books: ['id', 'book_no', 'name', 'author', 'publisher', 'category', 'lf', 'location', 'rack', 'created_at', 'updated_at'],
       issues: ['id', 'book_id', 'book_no', 'book_name', 'issue_user', 'issue_rank', 'issue_number', 'issue_dept', 'issue_date', 'duration',
         'due_date', 'issue_remarks', 'return_date', 'return_user', 'return_remarks', 'returned_late', 'issued_at', 'returned_at'],
-      users: ['id', 'username', 'password_hash', 'salt', 'active'],
+      users: ['id', 'username', 'password_hash', 'salt', 'active', 'role', 'permissions'],
       settings: ['key', 'value'],
     };
     for (const name of TABLES) if (!Array.isArray(data && data[name])) throw new UserError('The selected file is not a valid library backup.');
@@ -784,8 +828,9 @@ class MySqlLibraryDB {
 function defaults(table, col) {
   if (['created_at', 'updated_at', 'issued_at'].includes(col)) return now();
   if (col === 'active') return 1;
+  if (col === 'role') return 'librarian';
   if (col === 'returned_late') return 0;
-  if (['return_date', 'return_user', 'return_remarks', 'returned_at', 'book_id'].includes(col)) return null;
+  if (['return_date', 'return_user', 'return_remarks', 'returned_at', 'book_id', 'permissions'].includes(col)) return null;
   return '';
 }
 

@@ -269,23 +269,33 @@ function renderIssue({ book, overdueDays }) {
     </form></div>`);
   const form = $('#issue-form');
   const errBox = $('.form-error', form);
-  attachSuggest(form.userName, () => state.lookups.borrowers);
-  // A Number used before: picking it fills in that borrower's Name, Rank and Dept from their last issue.
+  // A borrower seen before: picking their Name or Number fills in the other details from their last issue.
   const known = () => state.lookups.borrowerDetails || [];
+  const fill = (b) => {
+    if (!b) return;
+    form.userName.value = b.name;
+    form.rank.value = b.rank || '';
+    form.number.value = b.number || '';
+    form.dept.value = b.dept || '';
+    [form.userName, form.rank, form.number, form.dept].forEach((el) => showFieldError(el, ''));
+  };
+  const detailText = (b) => [b.rank, b.dept].filter(Boolean).join(' · ');
+  attachSuggest(
+    form.userName,
+    () => {
+      // One row per borrower with a Number (the same name can belong to two people), then names
+      // used before without any Number on record.
+      const rows = known().map((b) => ({ value: b.name, text: b.number, sub: detailText(b), b }));
+      const withDetails = new Set(rows.map((r) => r.value.toLowerCase()));
+      for (const n of state.lookups.borrowers || []) if (!withDetails.has(String(n).toLowerCase())) rows.push({ value: String(n) });
+      return rows;
+    },
+    { onPick: (_name, item) => fill(item.b) }
+  );
   attachSuggest(
     form.number,
-    () => known().map((b) => ({ value: b.number, text: b.name, sub: [b.rank, b.dept].filter(Boolean).join(' · ') })),
-    {
-      head: 'Borrowers seen before',
-      onPick: (number) => {
-        const b = known().find((x) => x.number === number);
-        if (!b) return;
-        form.userName.value = b.name;
-        form.rank.value = b.rank || '';
-        form.dept.value = b.dept || '';
-        [form.userName, form.rank, form.dept].forEach((el) => showFieldError(el, ''));
-      },
-    }
+    () => known().map((b) => ({ value: b.number, text: b.name, sub: detailText(b), b })),
+    { head: 'Borrowers seen before', onPick: (_number, item) => fill(item.b) }
   );
   attachCounters(form);
   form.userName.focus();

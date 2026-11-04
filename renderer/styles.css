@@ -116,6 +116,37 @@ input, select, textarea { font-family: inherit; font-size: 13.5px; color: var(--
 /* ---------- Login ---------- */
 .login-screen { height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
 .login-panel { width: 380px; }
+.login-settings { position: fixed; top: 16px; right: 16px; width: 40px; height: 40px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(16, 24, 40, .06); z-index: 5; }
+.login-settings svg { width: 20px; height: 20px; }
+/* Opened with the Settings password: only the Settings page in the sidebar. */
+.settings-only .nav-item:not([data-page="settings"]),
+.settings-only .nav-label { display: none; }
+/* User access: the body gets "no-<permission>" for each one the account lacks (renderer/app.js). */
+.no-dashboard .nav-item[data-page="dashboard"],
+.no-books .nav-item[data-page="books"],
+.no-issue .nav-item[data-page="issue"],
+.no-return .nav-item[data-page="return"],
+.no-reports .nav-item[data-page="reports"],
+.no-settings .nav-item[data-page="settings"],
+.no-issue.no-return .nav-label-circ,
+.no-reports.no-settings .nav-label:not(.nav-label-circ),
+.no-issue [data-goto-page="issue"],
+.no-return [data-goto-page="return"],
+.no-books_edit [data-new-book],
+.no-books_edit [data-addbook],
+.no-books_edit #import-books-btn,
+.no-books_edit #add-book-btn,
+.no-books_edit #books-table [data-edit],
+.no-books_delete #books-table [data-del],
+.no-books_edit.no-books_delete #books-table .actions { display: none; }
+.no-books .tile[data-goto] { cursor: default; }
+.no-issue.no-return.no-books_edit .quick { display: none; }
+/* ...and the library database cannot be reached: only the cards that work without it. */
+.settings-offline #duration-form,
+.settings-offline #return-rule-form,
+.settings-offline #backup-card,
+.settings-offline .users-card,
+.settings-offline #ab-now { display: none; }
 .login-brand { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 22px; }
 .login-brand img { width: 42px; height: 42px; border-radius: 9px; }
 .login-brand strong { display: block; font-size: 17px; font-weight: 700; }
@@ -609,6 +640,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .seg-active input:checked + span i { background: var(--green); }
 .seg-inactive input:checked + span { background: #f3f4f6; color: #374151; }
 .seg-inactive input:checked + span i { background: #6b7280; }
+.seg-role input:checked + span { background: var(--primary-50); color: var(--primary-600); }
 .seg input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: -2px; }
 .seg input:disabled + span { opacity: .45; cursor: not-allowed; }
 
@@ -772,3 +804,16 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .dbconn-result { margin: 0 0 14px; }
 #db-fix a { color: var(--primary); }
 @media (max-width: 1000px) { .dbconn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ================= User access (Settings → Users) ================= */
+.modal.small:has(.perm-list) { max-width: 520px; }
+.access-name { font-weight: 600; color: var(--primary-600); }
+.access-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.access-presets .btn.active { border-color: var(--primary-600); color: var(--primary-600); background: var(--primary-50); }
+.perm-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.perm { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
+.perm:has(input:checked) { border-color: var(--primary-600); background: var(--primary-50); }
+.perm input { margin-top: 2px; flex: none; }
+.perm span { display: flex; flex-direction: column; min-width: 0; }
+.perm strong { font-size: 12.5px; color: var(--ink); }
+.perm small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }

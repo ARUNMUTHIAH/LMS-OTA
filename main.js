@@ -4,6 +4,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const { LibraryDB, UserError } = require('./src/database');
+const { isSettingsPassword, SETTINGS_USERNAME } = require('./server/api');
 const { RemoteDB, AuthError, asLibrary, EDITION, DEFAULT_SERVER_URL } = require('./src/remote');
 const { DirectDB, testConnection } = require('./src/direct');
 const reports = require('./src/reports');
@@ -19,7 +20,7 @@ const APP_TITLE = `${APP_NAME} — Library Management System`;
 let remote = null; // RemoteDB: holds the signed-in session token
 let lib = null; // the same server, with the library's method names (lib.searchBooks(...), ...)
 let mainWindow = null;
-let session = null; // { id, username } of the logged-in librarian
+let session = null; // { id, username, role, perms } of the logged-in user (perms: screens / actions allowed)
 let pendingImport = null; // rows read from the last chosen import file, until imported or cancelled
 let license = null; // LicenseManager: nothing but the License screen works without a valid license
 
@@ -127,6 +128,27 @@ process.on('unhandledRejection', (e) => log('Unhandled', e));
 // Wraps IPC handlers so the renderer always receives { ok, data } or { ok: false, error }.
 // Without a valid license (missing, expired, or for another installation) only the license:*
 // channels answer; anything else signs the librarian out and sends the screen to the License page.
+// Opened with the Settings password while the library database could not be reached: only what
+// works without the database answers (connection, license, automatic-backup options).
+const OFFLINE_CHANNELS = new Set([
+  'auth:logout', 'auth:settingsLogin', 'app:info',
+  'dbconn:get', 'dbconn:test', 'dbconn:save', 'dbconn:reset',
+  'backup:getAuto', 'backup:setAuto', 'backup:chooseFolder', 'shell:open', 'shell:website',
+]);
+
+// The Settings password (sign-in screen gear and sidebar Settings): at most 10 wrong in 15 minutes.
+const settingsTries = { count: 0, until: 0 };
+function checkSettingsPassword(password) {
+  if (settingsTries.until > Date.now() && settingsTries.count >= 10) throw new UserError('Too many wrong passwords. Please wait 15 minutes and try again.');
+  if (!isSettingsPassword(password)) {
+    if (settingsTries.until < Date.now()) Object.assign(settingsTries, { count: 1, until: Date.now() + 15 * 60e3 });
+    else settingsTries.count += 1;
+    throw new UserError('Incorrect password.');
+  }
+  settingsTries.count = 0;
+  return true;
+}
+
 function handle(channel, fn, { auth = true, licensed = true } = {}) {
   ipcMain.handle(channel, async (_event, ...args) => {
     if (licensed) {
@@ -141,6 +163,9 @@ function handle(channel, fn, { auth = true, licensed = true } = {}) {
       }
     }
     if (auth && !session) return { ok: false, auth: true, error: 'Your session has ended. Please sign in again.' };
+    if (session && session.offline && !channel.startsWith('license:') && !OFFLINE_CHANNELS.has(channel)) {
+      return { ok: false, error: 'Not connected to the library database. Fix the database connection first.' };
+    }
     try {
       const data = await fn(...args);
       return { ok: true, data };
@@ -211,6 +236,25 @@ function registerIpc() {
     return { user: res.user, settings: res.settings };
   };
   handle('auth:login', async ({ username, password } = {}) => signIn(await remote.call('login', { username, password })), { auth: false });
+  // Settings password from the sign-in screen: a session that can only use the Settings page.
+  // The password is checked here first, so Settings opens even when the database cannot be reached
+  // (then only the database connection and automatic backup options work, until it is fixed).
+  handle('auth:settingsLogin', async (password) => {
+    const pw = typeof password === 'string' ? password : '';
+    checkSettingsPassword(pw);
+    if (session) await remote.call('logout').catch(() => {});
+    try {
+      const res = await remote.call('settingsLogin', pw);
+      remote.token = res.token;
+      session = res.user;
+      return { user: res.user, settings: res.settings };
+    } catch (e) {
+      // Database down (or an older API server): Settings without the library data.
+      remote.token = null;
+      session = { id: 0, username: SETTINGS_USERNAME, settingsOnly: true, offline: true };
+      return { user: session, settings: null, error: e.message };
+    }
+  }, { auth: false });
   handle('auth:logout', async () => {
     await remote.call('logout').catch(() => {});
     remote.token = null;
@@ -239,7 +283,8 @@ function registerIpc() {
   handle('users:deleteMany', (ids) => lib.deleteUsers(ids));
 
   // ----- Settings -----
-  handle('settings:unlock', (password) => remote.call('verifyPassword', typeof password === 'string' ? password : ''));
+  // The sidebar Settings asks for the same Settings password as the gear on the sign-in screen.
+  handle('settings:unlock', (password) => checkSettingsPassword(typeof password === 'string' ? password : ''));
   handle('settings:get', () => lib.getSettings());
   handle('settings:setDuration', (days) => lib.setDefaultDuration(days));
   handle('settings:setReturnPolicy', (allow) => lib.setAllowOtherReturner(!!allow));
@@ -580,9 +625,9 @@ async function backupSql() {
 }
 
 // Writes today's backup unless one exists already (force: overwrite it with the current data).
-// Needs a signed-in session: the server only gives its data to a librarian.
+// Needs a signed-in session: the server only gives its data to a librarian (not to a View only account).
 async function runAutoBackup({ force = false } = {}) {
-  if (!session || !autoBackup || (!autoBackup.enabled && !force)) return null;
+  if (!session || (!session.settingsOnly && !(session.perms || []).includes('settings')) || !autoBackup || (!autoBackup.enabled && !force)) return null;
   const day = today();
   if (!force && autoBackup.last === day) return null;
   const file = path.join(autoBackup.folder, `${AUTO_BACKUP_PREFIX}${day}.sql`);

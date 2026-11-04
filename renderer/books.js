@@ -11,9 +11,11 @@ async function loadBooksPage(opts = {}) {
   if (opts.status !== undefined) {
     state.books.status = opts.status;
     state.books.query = '';
+    state.books.location = '';
     $('#book-search').value = '';
   }
   $('#book-filter-status').value = state.books.status;
+  $('#book-filter-location').value = state.books.location;
   state.books.page = 1;
   await refreshBooks();
   if (opts.newBook) openBookForm();
@@ -23,7 +25,7 @@ async function loadBooksPage(opts = {}) {
 let booksSeq = 0;
 async function refreshBooks() {
   const seq = ++booksSeq;
-  const rows = await rpc('searchBooks', { query: state.books.query, status: state.books.status });
+  const rows = await rpc('searchBooks', { query: state.books.query, status: state.books.status, location: state.books.location });
   if (seq !== booksSeq) return; // a newer search superseded this one
   state.books.rows = rows;
   renderBooks();
@@ -32,7 +34,7 @@ async function refreshBooks() {
 function renderBooks() {
   const { rows } = state.books;
   const { pages, start, slice } = pageSlice(rows, state.books);
-  const filtered = state.books.query || state.books.status;
+  const filtered = state.books.query || state.books.status || state.books.location;
 
   setHtml($('#books-table'), slice.length
     ? `<table class="table"><thead><tr><th class="idx">S.No</th><th>Barcode No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th class="actions"></th></tr></thead><tbody>
@@ -82,6 +84,11 @@ $('#book-search').addEventListener(
 );
 $('#book-filter-status').addEventListener('change', () => {
   state.books.status = $('#book-filter-status').value;
+  state.books.page = 1;
+  attempt(refreshBooks);
+});
+$('#book-filter-location').addEventListener('change', () => {
+  state.books.location = $('#book-filter-location').value;
   state.books.page = 1;
   attempt(refreshBooks);
 });

@@ -122,5 +122,46 @@
     },
   };
 
-  return { LIMITS, clean, checks };
+  // ---------- User access: which screens and actions each account may use ----------
+  // Saved per user as a comma list in users.permissions (NULL on accounts made before this: then the
+  // old role decides, "viewer" = View only, anything else = Full access).
+  const PERMISSIONS = [
+    { key: 'dashboard', label: 'Dashboard', desc: 'Overview, due soon and overdue list' },
+    { key: 'books', label: 'Book Entry — view', desc: 'Search and look at books' },
+    { key: 'books_edit', label: 'Book Entry — add / edit / import', desc: 'Add books, change them, import from Excel' },
+    { key: 'books_delete', label: 'Book Entry — delete', desc: 'Delete books' },
+    { key: 'issue', label: 'Issue Book', desc: 'Issue books to borrowers' },
+    { key: 'return', label: 'Return Book', desc: 'Receive books back' },
+    { key: 'reports', label: 'Reports', desc: 'View and export reports' },
+    { key: 'settings', label: 'Settings', desc: 'Users, loan rules, backup and restore' },
+  ];
+  const ALL = PERMISSIONS.map((p) => p.key);
+  const PRESETS = [
+    { key: 'full', label: 'Full access', perms: ALL },
+    { key: 'staff', label: 'Counter staff', perms: ['dashboard', 'books', 'issue', 'return', 'reports'] },
+    { key: 'viewer', label: 'View only', perms: ['dashboard', 'books', 'reports'] },
+  ];
+  const VIEW_ONLY = PRESETS[2].perms;
+
+  // A clean, ordered list: known keys only; editing or deleting books needs the Book Entry screen.
+  function normalizePerms(list) {
+    const set = new Set((Array.isArray(list) ? list : String(list || '').split(',')).map((s) => String(s).trim()));
+    if (set.has('books_edit') || set.has('books_delete')) set.add('books');
+    return ALL.filter((k) => set.has(k));
+  }
+  // The permissions of a users row ({ role, permissions }).
+  function permsOf(user) {
+    if (!user) return [];
+    if (user.permissions != null && user.permissions !== '') return normalizePerms(user.permissions);
+    return user.role === 'viewer' ? [...VIEW_ONLY] : [...ALL];
+  }
+  // A short name for a set of permissions: the matching preset, or "Custom".
+  function accessLabel(perms) {
+    const key = normalizePerms(perms).join(',');
+    const p = PRESETS.find((x) => x.perms.join(',') === key);
+    return p ? p.label : 'Custom';
+  }
+  const access = { PERMISSIONS, ALL, PRESETS, VIEW_ONLY, normalizePerms, permsOf, accessLabel };
+
+  return { LIMITS, clean, checks, access };
 });

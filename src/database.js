@@ -13,6 +13,12 @@ const { checks } = require('../renderer/rules');
 // Settings warning about changing its password only applies to that account.
 const DEFAULT_USERNAME = 'admin';
 
+// Lists that show books are in Barcode No order: by letter prefix A-Z, then by number
+// (BAG-001, CAG-001, CAG-002, CAG-010, DAG-001). Capitals, spaces and dashes are ignored, so
+// "cag 001", "CAG001" and "CAG-001" sort together. Ties keep the query's own order.
+const barcodeOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base', ignorePunctuation: true });
+const byBarcode = (rows) => rows.sort((a, b) => barcodeOrder.compare(String(a.book_no || ''), String(b.book_no || '')));
+
 // Fixed queries on the issues table. Columns are listed so callers get exactly these fields.
 const ISSUE_SQL = {
   byId: `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
@@ -74,7 +80,8 @@ CREATE TABLE IF NOT EXISTS users (
   username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
   salt          TEXT NOT NULL,
-  active        INTEGER NOT NULL DEFAULT 1
+  active        INTEGER NOT NULL DEFAULT 1,
+  role          TEXT NOT NULL DEFAULT 'librarian'
 );
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
@@ -83,6 +90,12 @@ CREATE TABLE IF NOT EXISTS settings (
 `;
 
 class UserError extends Error {}
+
+// User access: a librarian can do everything; a "viewer" (View only) can look at books, circulation
+// and reports but cannot add, edit, delete, import, issue or return (enforced in server/api.js).
+const ROLES = ['librarian', 'viewer'];
+const roleOf = (r) => (r === 'viewer' ? 'viewer' : 'librarian');
+const checkRole = (r) => (ROLES.includes(r) ? null : 'Choose an access level: Librarian or View only.');
 
 // Throws the first failing rule as a UserError.
 function check(...messages) {
@@ -141,6 +154,7 @@ class LibraryDB {
       if (!issueCols.includes(col)) this.db.run(`ALTER TABLE issues ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
     }
     if (!userCols.includes('active')) this.db.run('ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1');
+    if (!userCols.includes('role')) this.db.run("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'librarian'");
   }
 
   // No account is created here: on a new database the first user is set up from the
@@ -263,12 +277,17 @@ class LibraryDB {
 
   verifyLogin(username, password) {
     // The username must match exactly, capitals included (the column itself compares without case).
-    const user = this.get('SELECT id, username, password_hash, salt, active FROM users WHERE username = ? COLLATE BINARY', [clean(username)]);
+    const user = this.get('SELECT id, username, password_hash, salt, active, role FROM users WHERE username = ? COLLATE BINARY', [clean(username)]);
     if (!user || typeof password !== 'string') return null;
     const a = Buffer.from(hashPassword(password, user.salt), 'hex');
     const b = Buffer.from(user.password_hash, 'hex');
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-    return { id: user.id, username: user.username, active: user.active === 1 };
+    return { id: user.id, username: user.username, active: user.active === 1, role: roleOf(user.role) };
+  }
+
+  getUser(id) {
+    const u = this.get('SELECT id, username, active, role FROM users WHERE id = ?', [Number(id)]);
+    return u ? { ...u, active: u.active === 1, role: roleOf(u.role) } : null;
   }
 
   changeCredentials(userId, { currentPassword, newUsername, newPassword }) {
@@ -294,33 +313,41 @@ class LibraryDB {
 
   // ---------- User management ----------
   listUsers() {
-    return this.all('SELECT id, username, active FROM users ORDER BY username COLLATE NOCASE').map((u) => ({ ...u, active: u.active === 1 }));
+    return this.all('SELECT id, username, active, role FROM users ORDER BY username COLLATE NOCASE').map((u) => ({
+      ...u,
+      active: u.active === 1,
+      role: roleOf(u.role),
+    }));
   }
 
-  createUser({ username, password, active = true } = {}) {
+  createUser({ username, password, active = true, role = 'librarian' } = {}) {
     const name = username == null ? '' : String(username).trim();
-    check(checks.username(name), password ? checks.newPassword(password) : 'Password is required.');
+    check(checks.username(name), password ? checks.newPassword(password) : 'Password is required.', checkRole(role));
     if (this.get('SELECT id FROM users WHERE username = ?', [name])) {
       throw new UserError('That username is already in use.');
     }
     const salt = crypto.randomBytes(16).toString('hex');
     return this._transaction(() => {
-      this.db.run('INSERT INTO users (username, password_hash, salt, active) VALUES (?, ?, ?, ?)', [
+      this.db.run('INSERT INTO users (username, password_hash, salt, active, role) VALUES (?, ?, ?, ?, ?)', [
         name,
         hashPassword(password, salt),
         salt,
         active === false ? 0 : 1,
+        role,
       ]);
-      return { id: this._lastId(), username: name, active: active !== false };
+      return { id: this._lastId(), username: name, active: active !== false, role };
     });
   }
 
   // Edits a user's login. A blank password keeps the existing one; status is unchanged unless given.
-  updateUser(id, { username, password, active } = {}, currentUserId = null) {
-    const user = this.get('SELECT id, username, password_hash, salt, active FROM users WHERE id = ?', [Number(id)]);
+  updateUser(id, { username, password, active, role } = {}, currentUserId = null) {
+    const user = this.get('SELECT id, username, password_hash, salt, active, role FROM users WHERE id = ?', [Number(id)]);
     if (!user) throw new UserError('This user no longer exists.');
     const isActive = active == null ? user.active === 1 : active !== false;
     if (!isActive && user.id === currentUserId) throw new UserError('You cannot make the account you are signed in with inactive.');
+    const newRole = role == null ? roleOf(user.role) : role;
+    check(checkRole(newRole));
+    if (newRole !== 'librarian' && user.id === currentUserId) throw new UserError('You cannot make the account you are signed in with view only.');
     const name = username == null ? '' : String(username).trim();
     check(checks.username(name), checks.newPassword(password));
     if (this.get('SELECT id FROM users WHERE username = ? AND id <> ?', [name, user.id])) {
@@ -332,16 +359,17 @@ class LibraryDB {
       hash = hashPassword(password, salt);
     }
     this._transaction(() => {
-      this.db.run('UPDATE users SET username = ?, password_hash = ?, salt = ?, active = ? WHERE id = ?', [
+      this.db.run('UPDATE users SET username = ?, password_hash = ?, salt = ?, active = ?, role = ? WHERE id = ?', [
         name,
         hash,
         salt,
         isActive ? 1 : 0,
+        newRole,
         user.id,
       ]);
       if (password && user.username.toLowerCase() === DEFAULT_USERNAME) this._setSetting('default_credentials', '0');
     });
-    return { id: user.id, username: name, active: isActive };
+    return { id: user.id, username: name, active: isActive, role: newRole };
   }
 
   deleteUser(id, currentUserId) {
@@ -387,10 +415,10 @@ class LibraryDB {
     const params = [];
     if (q) {
       where.push(
-        "(b.book_no LIKE ? ESCAPE '\\' OR b.name LIKE ? ESCAPE '\\' OR b.lf LIKE ? ESCAPE '\\' OR b.category LIKE ? ESCAPE '\\')"
+        "(b.book_no LIKE ? ESCAPE '\\' OR b.name LIKE ? ESCAPE '\\' OR b.lf LIKE ? ESCAPE '\\' OR b.category LIKE ? ESCAPE '\\' OR b.location LIKE ? ESCAPE '\\')"
       );
       const p = likeParam(q);
-      params.push(p, p, p, p);
+      params.push(p, p, p, p, p);
     }
     if (clean(category)) {
       where.push('b.category = ? COLLATE NOCASE');
@@ -407,7 +435,7 @@ class LibraryDB {
     if (status === 'Available') where.push('i.id IS NULL');
     if (status === 'Issued') where.push('i.id IS NOT NULL');
     const sql = `${this._bookSelect()} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY b.id DESC`;
-    return this.all(sql, params);
+    return byBarcode(this.all(sql, params));
   }
 
   getBookByNumber(bookNo) {
@@ -641,7 +669,7 @@ class LibraryDB {
   }
 
   recentActivity(limit = 12) {
-    return this.all(
+    return byBarcode(this.all(
       `SELECT action, book_no, book_name, user_name, at, due_date, late FROM (
          SELECT 'Issued' AS action, book_no, book_name, issue_user AS user_name, issued_at AS at, due_date, 0 AS late FROM issues
          UNION ALL
@@ -649,15 +677,15 @@ class LibraryDB {
            FROM issues WHERE return_date IS NOT NULL
        ) ORDER BY at DESC LIMIT ?`,
       [limit]
-    );
+    ));
   }
 
   todaysActivity(kind) {
     const t = today();
     if (kind === 'issue') {
-      return this.all(ISSUE_SQL.issuedOn, [t]);
+      return byBarcode(this.all(ISSUE_SQL.issuedOn, [t]));
     }
-    return this.all(ISSUE_SQL.returnedOn, [t]);
+    return byBarcode(this.all(ISSUE_SQL.returnedOn, [t]));
   }
 
   // ---------- Dashboard ----------
@@ -681,7 +709,7 @@ class LibraryDB {
       issued,
       available: total - issued,
       overdue,
-      dueSoon,
+      dueSoon: byBarcode(dueSoon),
       recent: this.recentActivity(8),
     };
   }
@@ -692,14 +720,14 @@ class LibraryDB {
     const where = ['issue_date <= ?', 'due_date < ?', '(return_date IS NULL OR return_date > ?)'];
     const params = [asOn, asOn, asOn];
     this._textFilters(where, params, { userName, bookNo, q });
-    return this.all(
+    return byBarcode(this.all(
       `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, due_date, return_date, issue_remarks,
               CAST(julianday(?) - julianday(due_date) AS INTEGER) AS days_overdue
          FROM issues
         WHERE ${where.join(' AND ')}
         ORDER BY days_overdue DESC, book_no`,
       [asOn, ...params]
-    );
+    ));
   }
 
   // Shared text filters for circulation lists: borrower, accession number and free-text search.
@@ -772,7 +800,7 @@ class LibraryDB {
     }
     this._textFilters(where, params, { userName, bookNo, q });
     const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
-    return this.all(
+    return byBarcode(this.all(
       `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at,
               CASE
@@ -783,7 +811,7 @@ class LibraryDB {
          FROM issues ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY ${order}`,
       [t, ...params]
-    );
+    ));
   }
 
   // ---------- Backup / restore ----------

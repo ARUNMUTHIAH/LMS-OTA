@@ -1,7 +1,8 @@
 'use strict';
 // Settings page: users, loan duration, borrower on return, backup and restore, automatic backup,
-// database connection and the software license (license card: renderer/license.js).
-// The page opens only after the signed-in librarian re-enters their password (unlockSettings).
+// and database connection.
+// The page opens only after the Settings password is entered (unlockSettings), the same one as the
+// gear on the sign-in screen.
 // Used by: renderer/index.html, which loads it with <script src="settings.js">.
 // Not imported: the screen scripts are plain browser scripts that share one global scope and
 // load in this order: ui.js, app.js, dashboard.js, books.js, circulation.js, reports.js,
@@ -9,14 +10,22 @@
 
 /* ================= Settings ================= */
 async function loadSettings() {
+  clearFieldErrors($('#page-settings'));
+  // Settings password with the database unreachable: only the cards that work without it.
+  if (state.user && state.user.offline) {
+    const info = await rpc('appInfo');
+    $('#data-file').textContent = `${info.dataFile}  ·  Version ${info.version}`;
+    renderAutoBackup(await rpc('getAutoBackup'));
+    await loadDbConn();
+    return;
+  }
   const [s, info] = await Promise.all([rpc('getSettings'), rpc('appInfo')]);
   state.settings = s;
-  clearFieldErrors($('#page-settings'));
   $('#set-duration').value = s.defaultDuration;
   renderReturnRule(s);
   $('#data-file').textContent = `${info.dataFile}  ·  Version ${info.version}`;
   renderAutoBackup(await rpc('getAutoBackup'));
-  await Promise.all([loadUsers(), loadDbConn(), loadLicenseCard()]);
+  await Promise.all([loadUsers(), loadDbConn()]);
 }
 
 /* ----- Users ----- */
@@ -34,13 +43,18 @@ function renderUsers() {
   setHtml($('#users-table'), shown.length
     ? `<table class="table users-table"><thead><tr>
       <th class="check"><input type="checkbox" id="users-all" title="Select all" /></th>
-      <th class="idx">S.No</th><th>Username</th><th>Status</th><th class="actions">Actions</th></tr></thead><tbody>
+      <th class="idx">S.No</th><th>Username</th><th>Access</th><th>Status</th><th class="actions">Actions</th></tr></thead><tbody>
     ${shown
       .map(
         (u, i) => `<tr class="${u.me ? 'me' : ''}">
         <td class="check"><input type="checkbox" data-user-check="${u.id}" ${u.me ? 'disabled title="You cannot delete your own account"' : ''} /></td>
         <td class="idx muted">${i + 1}</td>
         <td><div class="user-cell"><div class="avatar-sm ${u.active ? '' : 'off'}">${esc(u.username.charAt(0).toUpperCase())}</div><strong>${esc(u.username)}</strong>${u.me ? '<span class="you-tag">You</span>' : ''}</div></td>
+        <td>${(() => {
+          const name = ACCESS.accessLabel(ACCESS.permsOf(u));
+          const list = ACCESS.PERMISSIONS.filter((p) => ACCESS.permsOf(u).includes(p.key)).map((p) => p.label).join(', ');
+          return `<span class="pill ${name === 'Full access' ? 'pill-indigo' : ''}" title="${esc(list)}">${esc(name)}</span>`;
+        })()}</td>
         <td>${u.active ? '<span class="badge badge-active"><i></i>Active</span>' : '<span class="badge badge-inactive"><i></i>Inactive</span>'}</td>
         <td class="actions">
           <button class="icon-btn" data-user-edit="${u.id}" title="Edit">${icon('edit')}</button>
@@ -84,6 +98,8 @@ function syncSignedInName(username) {
 
 function openUserForm(user = null) {
   const isEdit = !!user;
+  const perms = isEdit ? ACCESS.permsOf(user) : ACCESS.PRESETS[0].perms;
+  const lockSettings = isEdit && user.me;
   const m = openModal({
     title: isEdit ? `Edit User “${user.username}”` : 'Add User',
     iconName: isEdit ? 'edit' : 'plus',
@@ -93,6 +109,14 @@ function openUserForm(user = null) {
         <span class="hint">3–30 characters: letters, numbers, . _ - (no spaces).</span></label>
       <label class="field"><span>Password${isEdit ? '' : ' <em>*</em>'}</span><input name="password" type="password" maxlength="64" ${isEdit ? 'placeholder="Leave blank to keep the current password"' : ''} />
         <span class="hint">At least 4 characters.</span></label>
+      <div class="field"><span>Access <b class="access-name" data-access-name></b></span>
+        <div class="access-presets">${ACCESS.PRESETS.map((p) => `<button type="button" class="btn btn-soft btn-sm" data-preset="${p.key}">${esc(p.label)}</button>`).join('')}</div>
+        <div class="perm-list">${ACCESS.PERMISSIONS.map(
+          (p) => `<label class="perm"><input type="checkbox" name="perm" value="${p.key}" ${perms.includes(p.key) ? 'checked' : ''}
+            ${lockSettings && p.key === 'settings' ? 'disabled' : ''} /><span><strong>${esc(p.label)}</strong><small>${esc(p.desc)}</small></span></label>`
+        ).join('')}</div>
+        <span class="hint">${lockSettings ? 'Your own account keeps Settings access, so you cannot lock yourself out.' : 'Tick the screens this user can open. Unticked screens are hidden for them.'}</span>
+      </div>
       <div class="field"><span>Status</span>
         <div class="segmented" role="radiogroup" aria-label="Status">
           <label class="seg seg-active"><input type="radio" name="active" value="1" ${!isEdit || user.active ? 'checked' : ''} /><span><i></i>Active</span></label>
@@ -111,6 +135,27 @@ function openUserForm(user = null) {
   if (!isEdit) enterMovesTo(form.username, form.password); // password is optional when editing
   setTimeout(() => form.username.focus(), 30);
 
+  // Access: presets tick a ready-made set; the name shows which preset matches (or "Custom").
+  const boxes = $$('input[name=perm]', form);
+  const chosen = () => ACCESS.normalizePerms(boxes.filter((b) => b.checked).map((b) => b.value));
+  const syncAccess = (changed) => {
+    const on = new Set(chosen());
+    // Edit / delete books needs the Book Entry screen; no Book Entry means no edit / delete either.
+    if (changed && changed.value === 'books' && !changed.checked) ['books_edit', 'books_delete'].forEach((k) => on.delete(k));
+    boxes.forEach((b) => (b.checked = (lockSettings && b.value === 'settings') || ACCESS.normalizePerms([...on]).includes(b.value)));
+    $('[data-access-name]', form).textContent = `· ${ACCESS.accessLabel(chosen())}`;
+    $$('[data-preset]', form).forEach((btn) => btn.classList.toggle('active', ACCESS.accessLabel(chosen()) === btn.textContent));
+  };
+  boxes.forEach((b) => b.addEventListener('change', () => syncAccess(b)));
+  $$('[data-preset]', form).forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const p = ACCESS.PRESETS.find((x) => x.key === btn.dataset.preset);
+      boxes.forEach((b) => (b.checked = p.perms.includes(b.value)));
+      syncAccess();
+    })
+  );
+  syncAccess();
+
   async function save() {
     errBox.hidden = true;
     const password = form.password.value;
@@ -119,7 +164,13 @@ function openUserForm(user = null) {
       [form.password, (v) => (!isEdit && !v ? 'Password is required.' : RULES.newPassword(v))],
     ]);
     if (!valid) return;
-    const payload = { username: form.username.value.trim(), password, active: form.active.value === '1' };
+    const access = chosen();
+    if (!access.length) {
+      errBox.textContent = 'Tick at least one screen this user can open.';
+      errBox.hidden = false;
+      return;
+    }
+    const payload = { username: form.username.value.trim(), password, active: form.active.value === '1', perms: access };
     const res = isEdit ? await window.api.updateUser(user.id, payload) : await window.api.createUser(payload);
     if (!res.ok) {
       if (/username/i.test(res.error)) showFieldError(form.username, res.error);
@@ -232,7 +283,7 @@ function unlockSettings() {
       iconName: 'lock',
       size: 'small',
       body: `<form method="post" id="unlock-form" autocomplete="off" novalidate>
-        <p class="muted unlock-help">Enter the password of <b>${esc(state.user.username)}</b> to open Settings.</p>
+        <p class="muted unlock-help">Enter the Settings password to open Settings.</p>
         <label class="field"><span>Password <em>*</em></span><input name="password" type="password" maxlength="64" /></label>
         <button type="submit" hidden></button>
       </form>`,
@@ -245,7 +296,7 @@ function unlockSettings() {
     enhancePasswords(form);
     setTimeout(() => form.password.focus(), 30);
     async function submit() {
-      if (!validateFields([[form.password, (v) => (v ? '' : 'Enter your password.')]])) return;
+      if (!validateFields([[form.password, (v) => (v ? '' : 'Enter the password.')]])) return;
       btn.disabled = true;
       const res = await window.api.unlockSettings(form.password.value);
       btn.disabled = false;

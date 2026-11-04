@@ -31,19 +31,18 @@ const REPORTS = {
       { key: 'status', label: 'Status', width: 12 },
     ],
     async build(db, f) {
-      const rows = await db.searchBooks({ query: f.q, category: f.category, status: f.status, location: f.location, rack: f.rack });
+      const rows = await db.searchBooks({ category: f.category, status: f.status, location: f.location, rack: f.rack });
       const parts = [];
       parts.push(`CAT: ${f.category || 'All'}`);
       parts.push(`LOC: ${f.location || 'All'}`);
       parts.push(`Rack: ${f.rack || 'All'}`);
       parts.push(`Status: ${f.status || 'All'}`);
       if (f.q) parts.push(`Search: "${f.q}"`);
+      return { rows, filterText: parts.join('   |   ') };
+    },
+    summary(rows) {
       const issued = rows.filter((r) => r.status === 'Issued').length;
-      return {
-        rows,
-        filterText: parts.join('   |   '),
-        summary: `${rows.length} book(s)  ·  ${rows.length - issued} available  ·  ${issued} issued`,
-      };
+      return `${rows.length} book(s)  ·  ${rows.length - issued} available  ·  ${issued} issued`;
     },
   },
   circulation: {
@@ -65,7 +64,7 @@ const REPORTS = {
     async build(db, f) {
       const dateBy = f.dateBy || 'issue';
       const rows = (
-        await db.circulationList({ from: f.from, to: f.to, dateBy, userName: f.userName, bookNo: f.bookNo, status: f.status, q: f.q })
+        await db.circulationList({ from: f.from, to: f.to, dateBy, userName: f.userName, bookNo: f.bookNo, status: f.status })
       ).map((r) => {
           const remarks = [];
           if (r.issue_remarks) remarks.push(`Issue: ${r.issue_remarks}`);
@@ -77,12 +76,9 @@ const REPORTS = {
       const parts = [range, `Status: ${STATUS_LABELS[f.status || ''] || 'All'}`, `Name: ${f.userName || 'All'}`];
       if (f.bookNo) parts.push(`Barcode No: ${f.bookNo}`);
       if (f.q) parts.push(`Search: "${f.q}"`);
-      return {
-        rows,
-        filterText: parts.join('   |   '),
-        summary: `${rows.length} transaction(s)  ·  ${rows.filter((r) => !r.return_date).length} still out`,
-      };
+      return { rows, filterText: parts.join('   |   ') };
     },
+    summary: (rows) => `${rows.length} transaction(s)  ·  ${rows.filter((r) => !r.return_date).length} still out`,
   },
   overdue: {
     title: 'Overdue Books Report',
@@ -99,29 +95,59 @@ const REPORTS = {
     ],
     async build(db, f) {
       const asOn = f.asOn || today();
-      const rows = await db.overdueList(asOn, { userName: f.userName, bookNo: f.bookNo, q: f.q });
+      const rows = await db.overdueList(asOn, { userName: f.userName, bookNo: f.bookNo });
       const parts = [`As on: ${display(asOn)}`, `Name: ${f.userName || 'All'}`];
       if (f.bookNo) parts.push(`Barcode No: ${f.bookNo}`);
       if (f.q) parts.push(`Search: "${f.q}"`);
-      return {
-        rows,
-        filterText: parts.join('   |   '),
-        summary: `${rows.length} overdue book(s)`,
-      };
+      return { rows, filterText: parts.join('   |   ') };
     },
+    summary: (rows) => `${rows.length} overdue book(s)`,
   },
 };
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// Everything a report row shows, as searchable text: each column as stored and as displayed
+// (dates as 2026-09-28, 28-09-2026 and 28 Sep 2026; days overdue as "5" and "5 days").
+function rowText(columns, row) {
+  const parts = [];
+  for (const col of columns) {
+    const v = row[col.key];
+    if (v == null || v === '') continue;
+    const text = String(v).trim();
+    parts.push(text);
+    if (col.date) {
+      const [y, m, d] = text.slice(0, 10).split('-');
+      parts.push(display(text.slice(0, 10)), `${d} ${MONTHS[Number(m) - 1] || ''} ${y}`);
+    }
+    if (col.num) parts.push(`${text} ${Number(v) === 1 ? 'day' : 'days'}`);
+  }
+  return parts.join('\n').toLowerCase();
+}
+
+// The report search box: every word typed must appear somewhere in the row, in any column.
+function searchRows(columns, rows, q) {
+  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return rows;
+  return rows.filter((row) => {
+    const text = rowText(columns, row);
+    return words.every((w) => text.includes(w));
+  });
+}
 
 async function buildReport(db, type, filters = {}) {
   const def = REPORTS[type];
   if (!def) throw new Error('Unknown report: ' + type);
   const result = await def.build(db, filters);
+  const rows = searchRows(def.columns, result.rows, filters.q);
   return {
     type,
     title: def.title,
     columns: def.columns.map(({ key, label, date, num }) => ({ key, label, date: !!date, num: !!num })),
     generatedOn: new Date().toLocaleString('en-GB'),
     ...result,
+    rows,
+    summary: def.summary(rows),
   };
 }
 

@@ -56,6 +56,18 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(db.searchBooks({ query: 'OTA-00' }).length, 3);
   assert.strictEqual(db.searchBooks({ query: '007-01' }).length, 1, 'search by LF');
   assert.strictEqual(db.searchBooks({ query: 'DOR-' }).length, 2, 'search by CAT');
+  assert.strictEqual(db.searchBooks({ query: 'b2' }).length, 2, 'search by location');
+  assert.strictEqual(db.searchBooks({ location: 'B2' }).length, 2, 'location filter');
+  assert.strictEqual(db.searchBooks({ location: 'B2', query: 'wings' }).length, 1, 'location filter with search');
+  assert.deepStrictEqual(db.searchBooks({}).map((b) => b.book_no), ['OTA-001', 'OTA-002', 'OTA-003'], 'books in Barcode No order, ascending');
+  // Letter prefix A-Z first, then number; spaces, dashes and capitals ignored.
+  const mixed = ['dag001', 'CAG-010', 'bag001', 'CAG/002', 'cag001', 'CAG-9'].map((n) => db.saveBook({ book_no: n, name: 'Sort test', location: 'ZZ' }));
+  assert.deepStrictEqual(
+    db.searchBooks({ location: 'ZZ' }).map((b) => b.book_no),
+    ['bag001', 'cag001', 'CAG/002', 'CAG-9', 'CAG-010', 'dag001'],
+    'barcodes grouped by letter prefix, then by number'
+  );
+  for (const m of mixed) db.deleteBook(m.id);
 
   // Dashboard basics
   let d = db.dashboard();
@@ -147,6 +159,12 @@ const expectUserError = (fn, pattern) =>
   assert.strictEqual(db.overdueList(addDays(t, -1), { bookNo: 'OTA-002' }).length, 1);
   assert.ok(db.shelfValues().categories.includes('Science'));
   assert.strictEqual((await reports.buildReport(db, 'books', { q: 'physics' })).rows.length, 1, 'report search');
+  assert.strictEqual((await reports.buildReport(db, 'books', { q: 'b2 wings' })).rows.length, 1, 'report search: every word, any column');
+  const rAvail = await reports.buildReport(db, 'books', { q: 'available' });
+  assert.ok(rAvail.rows.length >= 1, 'report search: status');
+  assert.ok(rAvail.summary.startsWith(`${rAvail.rows.length} book(s)`), 'summary counts the matching rows');
+  const dueShown = rc.rows[0].due_date.split('-').reverse().join('-');
+  assert.ok((await reports.buildReport(db, 'circulation', { q: dueShown })).rows.length >= 1, 'report search: dates as shown');
   await assert.rejects(reports.buildReport(db, 'circulation', { from: t, to: addDays(t, -1) }), (e) => e instanceof UserError && /From/.test(e.message));
   const xlsx = path.join(dir, 'r.xlsx');
   await reports.toExcel(db, 'circulation', {}, xlsx);
@@ -204,6 +222,18 @@ const expectUserError = (fn, pattern) =>
   db.deleteUser(arun.id, 1);
   assert.strictEqual(db.verifyLogin('arun.k', 'newpass1'), null);
   expectUserError(() => db.deleteUser(arun.id, 1), /no longer exists/);
+  // Access: Librarian (default) or View only; you cannot make yourself view only.
+  assert.strictEqual(db.verifyLogin('librarian', 'secret1').role, 'librarian', 'existing users are librarians');
+  const viewer = db.createUser({ username: 'viewer1', password: 'view1234', role: 'viewer' });
+  assert.strictEqual(db.verifyLogin('viewer1', 'view1234').role, 'viewer');
+  assert.strictEqual(db.listUsers().find((u) => u.id === viewer.id).role, 'viewer');
+  expectUserError(() => db.createUser({ username: 'bad1', password: '1234', role: 'admin' }), /access level/);
+  expectUserError(() => db.updateUser(1, { username: 'librarian', role: 'viewer' }, 1), /signed in with view only/);
+  db.updateUser(viewer.id, { username: 'viewer1', password: '' }, 1);
+  assert.strictEqual(db.getUser(viewer.id).role, 'viewer', 'access unchanged when not given');
+  db.updateUser(viewer.id, { username: 'viewer1', password: '', role: 'librarian' }, 1);
+  assert.strictEqual(db.getUser(viewer.id).role, 'librarian');
+  db.deleteUser(viewer.id, 1);
   const u1 = db.createUser({ username: 'temp1', password: '1111' });
   const u2 = db.createUser({ username: 'temp2', password: '2222' });
   expectUserError(() => db.deleteUsers([u1.id, 1], 1), /signed in with/);
@@ -374,6 +404,56 @@ const expectUserError = (fn, pattern) =>
   bdb.issueBook({ bookNo: 'N-2', userName: 'Ravi Kumar', rank: 'Cdr', number: 'C-101', dept: 'Air', duration: 7 });
   bdb.issueBook({ bookNo: 'N-1', userName: 'Priya', duration: 7 }); // no Number: not listed
   assert.deepStrictEqual(bdb.borrowerDetails(), [{ number: 'C-101', name: 'Ravi Kumar', rank: 'Cdr', dept: 'Air' }]);
+
+  // View only accounts: the API lets them read but refuses every change (database methods stubbed).
+  {
+    const { MySqlLibraryDB } = require('../server/library-db');
+    const { createApi } = require('../server/api');
+    const P = MySqlLibraryDB.prototype;
+    const saved = {};
+    const { access } = require('../renderer/rules');
+    const ids = { viewer: 7, librarian: 8, staff: 9 };
+    const rows = {
+      7: { role: 'viewer', permissions: null }, // an account from before permissions: View only
+      8: { role: 'librarian', permissions: null }, // ...and Full access
+      9: { role: 'viewer', permissions: 'dashboard,books,issue,return,reports' }, // Counter staff
+    };
+    const userRow = (id) => ({ id, username: 'x', active: true, ...rows[id], perms: access.permsOf(rows[id]) });
+    const stubs = {
+      verifyLogin: async (username) => userRow(ids[username]),
+      getUser: async (id) => userRow(id),
+      getSettings: async () => ({ defaultDuration: 14, username: 'x', defaultCredentials: false, allowOtherReturner: true }),
+      searchBooks: async () => [{ book_no: 'A-1' }],
+      saveBook: async () => ({ id: 1 }),
+      deleteBook: async () => true,
+      issueBook: async () => ({}),
+    };
+    for (const [k, fn] of Object.entries(stubs)) [saved[k], P[k]] = [P[k], fn];
+    try {
+      const api = createApi(null);
+      const as = async (username) => (await api.call({ edition: 'technical', method: 'login', args: [{ username, password: 'x' }] })).token;
+      const call = (token, method, ...args) => api.call({ edition: 'technical', method, args, token });
+      const v = await as('viewer');
+      assert.deepStrictEqual(await call(v, 'searchBooks', {}), [{ book_no: 'A-1' }], 'view only can see books');
+      for (const m of ['saveBook', 'deleteBook', 'importBooks', 'issueBook', 'returnBook', 'createUser', 'updateUser', 'deleteUser', 'exportData', 'replaceData', 'setDefaultDuration']) {
+        await assert.rejects(call(v, m, {}), /does not have access/, `view only cannot ${m}`);
+      }
+      const l = await as('librarian');
+      assert.deepStrictEqual(await call(l, 'saveBook', {}), { id: 1 }, 'librarian can edit');
+      // Counter staff: issue and return, but no book changes or Settings.
+      const s = await as('staff');
+      assert.deepStrictEqual(await call(s, 'issueBook', {}), {}, 'counter staff can issue');
+      for (const m of ['saveBook', 'deleteBook', 'importBooks', 'listUsers', 'createUser', 'exportData', 'setDefaultDuration']) {
+        await assert.rejects(call(s, m, {}), /does not have access/, `counter staff cannot ${m}`);
+      }
+      // Permissions: edit / delete books bring the Book Entry screen; unknown keys are dropped.
+      assert.deepStrictEqual(access.normalizePerms(['books_delete', 'nope', 'dashboard']), ['dashboard', 'books', 'books_delete']);
+      assert.strictEqual(access.accessLabel(access.ALL), 'Full access');
+      assert.strictEqual(access.accessLabel(['issue']), 'Custom');
+    } finally {
+      Object.assign(P, saved);
+    }
+  }
 
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('All smoke tests passed.');
