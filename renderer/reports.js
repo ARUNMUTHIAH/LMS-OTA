@@ -134,6 +134,7 @@ function renderReportTable() {
                 if (c.key === 'status') return `<td>${badge(v)}</td>`;
                 if (c.key === 'book_no') return `<td class="mono">${esc(v)}</td>`;
                 if (c.date) return `<td class="date">${esc(fmtDate(v)) || dash}</td>`;
+                if (c.time) return `<td class="date">${esc(fmtTime(v)) || dash}</td>`;
                 if (c.num) return `<td class="num"><span class="badge badge-overdue">${plural(v, 'day')}</span></td>`;
                 if (c.key === 'name' || c.key === 'book_name') return `<td class="strong wrap">${esc(v)}</td>`;
                 return `<td class="${c.key === 'remarks' ? 'wrap' : 'nowrap'}">${esc(v) || dash}</td>`;

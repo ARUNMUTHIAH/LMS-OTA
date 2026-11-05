@@ -14,7 +14,7 @@ const { toSqlDump, parseSqlDump } = require('./src/sqldump');
 const { LicenseManager, LicenseError } = require('./src/license');
 
 const APP_NAME = 'Technical Library - CGAS Chennai';
-const APP_TITLE = `${APP_NAME} — Library Management System`;
+const APP_TITLE = `${APP_NAME} — 2CQR Garuda LMS`;
 
 // All library data lives on the library server (MySQL); see server/ and src/remote.js.
 let remote = null; // RemoteDB: holds the signed-in session token

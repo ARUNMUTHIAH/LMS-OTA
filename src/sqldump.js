@@ -33,10 +33,12 @@ const COLUMNS = {
     ['issue_number', `varchar(50) ${C} NOT NULL DEFAULT ''`],
     ['issue_dept', `varchar(50) ${C} NOT NULL DEFAULT ''`],
     ['issue_date', 'date NOT NULL'],
+    ['issue_time', 'time DEFAULT NULL'],
     ['duration', 'int NOT NULL'],
     ['due_date', 'date NOT NULL'],
     ['issue_remarks', `varchar(250) ${C} NOT NULL DEFAULT ''`],
     ['return_date', 'date DEFAULT NULL'],
+    ['return_time', 'time DEFAULT NULL'],
     ['return_user', `varchar(100) ${C} DEFAULT NULL`],
     ['return_remarks', `varchar(250) ${C} DEFAULT NULL`],
     ['returned_late', "tinyint(1) NOT NULL DEFAULT '0'"],
@@ -46,6 +48,7 @@ const COLUMNS = {
   settings: [
     ['key', `varchar(50) ${C} NOT NULL`],
     ['value', `varchar(255) ${C} NOT NULL`],
+    ['updated_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
   ],
   users: [
     ['id', 'int UNSIGNED NOT NULL'],
@@ -55,6 +58,8 @@ const COLUMNS = {
     ['active', "tinyint(1) NOT NULL DEFAULT '1'"],
     ['role', `varchar(20) ${C} NOT NULL DEFAULT 'librarian'`],
     ['permissions', `varchar(255) ${C} DEFAULT NULL`],
+    ['created_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP'],
+    ['updated_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
   ],
 };
 

@@ -67,8 +67,14 @@ function now() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-const ISSUE_COLS = `id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date,
-  issue_remarks, return_date, return_user, return_remarks, returned_late, issued_at, returned_at`;
+const ISSUE_COLS = `id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, issue_time, duration,
+  due_date, issue_remarks, return_date, return_time, return_user, return_remarks, returned_late, issued_at, returned_at`;
+// Fills issue_time / return_time from issued_at / returned_at where they are empty (rows from before
+// these columns, older backups, or rows added by hand in phpMyAdmin).
+const fillTimes = (t) => [
+  `UPDATE ${t} SET issue_time = TIME(issued_at) WHERE issue_time IS NULL AND issued_at IS NOT NULL`,
+  `UPDATE ${t} SET return_time = TIME(returned_at) WHERE return_time IS NULL AND returned_at IS NOT NULL`,
+];
 
 function schema(p) {
   return [
@@ -97,10 +103,12 @@ function schema(p) {
       issue_number    VARCHAR(50)  NOT NULL DEFAULT '',
       issue_dept      VARCHAR(50)  NOT NULL DEFAULT '',
       issue_date      DATE         NOT NULL,
+      issue_time      TIME         NULL,
       duration        INT          NOT NULL,
       due_date        DATE         NOT NULL,
       issue_remarks   VARCHAR(250) NOT NULL DEFAULT '',
       return_date     DATE         NULL,
+      return_time     TIME         NULL,
       return_user     VARCHAR(100) NULL,
       return_remarks  VARCHAR(250) NULL,
       returned_late   TINYINT(1)   NOT NULL DEFAULT 0,
@@ -119,12 +127,15 @@ function schema(p) {
       active        TINYINT(1)   NOT NULL DEFAULT 1,
       role          VARCHAR(20)  NOT NULL DEFAULT 'librarian',
       permissions   VARCHAR(255) NULL,
+      created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uq_${p}users_username (username)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS ${p}settings (
       \`key\`   VARCHAR(50)  NOT NULL,
       \`value\` VARCHAR(255) NOT NULL,
+      updated_at DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (\`key\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   ];
@@ -150,6 +161,7 @@ class MySqlLibraryDB {
     const tables = new Set(cols.map((r) => r.t));
     const issueCols = cols.filter((r) => r.t === this.t.issues).map((r) => r.c);
     const userCols = cols.filter((r) => r.t === this.t.users).map((r) => r.c);
+    const settingCols = cols.filter((r) => r.t === this.t.settings).map((r) => r.c);
     const created = !tables.has(this.t.settings);
     if (TABLES.some((n) => !tables.has(this.t[n]))) {
       for (const sql of schema(this.p)) await this.pool.query(sql);
@@ -165,12 +177,27 @@ class MySqlLibraryDB {
         issueCols.push(col);
       }
     }
+    // Issue and return time of day, beside their dates (the full timestamps stay in issued_at / returned_at).
+    if (tables.has(this.t.issues) && !issueCols.includes('issue_time')) {
+      await this.pool.query(`ALTER TABLE ${this.t.issues} ADD COLUMN issue_time TIME NULL AFTER issue_date,
+        ADD COLUMN return_time TIME NULL AFTER return_date`);
+      for (const sql of fillTimes(this.t.issues)) await this.pool.query(sql);
+    }
     if (tables.has(this.t.users) && !userCols.includes('role')) {
       await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'librarian' AFTER active`);
       userCols.push('role');
     }
     if (tables.has(this.t.users) && !userCols.includes('permissions')) {
       await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN permissions VARCHAR(255) NULL AFTER role`);
+    }
+    // Timestamps on users and settings (books and issues have theirs from the start). Rows that
+    // existed before get the time the column was added.
+    if (tables.has(this.t.users) && !userCols.includes('created_at')) {
+      await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER permissions,
+        ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_at`);
+    }
+    if (tables.has(this.t.settings) && !settingCols.includes('updated_at')) {
+      await this.pool.query(`ALTER TABLE ${this.t.settings} ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER \`value\``);
     }
     // A missing default_duration reads as 14 days anyway (getSettings), so only a new table needs it.
     if (created) await this.pool.query(`INSERT IGNORE INTO ${this.t.settings} (\`key\`, \`value\`) VALUES ('default_duration', '14')`);
@@ -215,8 +242,9 @@ class MySqlLibraryDB {
 
   async _setSetting(key, value, cx) {
     await this.run(
-      `INSERT INTO ${this.t.settings} (\`key\`, \`value\`) VALUES (?, ?) ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`)`,
-      [key, String(value)],
+      `INSERT INTO ${this.t.settings} (\`key\`, \`value\`, updated_at) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`), updated_at = VALUES(updated_at)`,
+      [key, String(value), now()],
       cx
     );
   }
@@ -292,7 +320,7 @@ class MySqlLibraryDB {
       hash = hashPassword(newPassword, salt);
     }
     await this._transaction(async (cx) => {
-      await this.run(`UPDATE ${this.t.users} SET username = ?, password_hash = ?, salt = ? WHERE id = ?`, [username, hash, salt, userId], cx);
+      await this.run(`UPDATE ${this.t.users} SET username = ?, password_hash = ?, salt = ?, updated_at = ? WHERE id = ?`, [username, hash, salt, now(), userId], cx);
       if (newPassword) await this._setSetting('default_credentials', '0', cx);
     });
     return { id: userId, username };
@@ -314,8 +342,8 @@ class MySqlLibraryDB {
     }
     const salt = crypto.randomBytes(16).toString('hex');
     const res = await this.run(
-      `INSERT INTO ${this.t.users} (username, password_hash, salt, active, role, permissions) VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, hashPassword(password, salt), salt, active === false ? 0 : 1, roleFor(list), list.join(',')]
+      `INSERT INTO ${this.t.users} (username, password_hash, salt, active, role, permissions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, hashPassword(password, salt), salt, active === false ? 0 : 1, roleFor(list), list.join(','), now(), now()]
     );
     return { id: res.insertId, username: name, active: active !== false, role: roleFor(list), perms: list };
   }
@@ -342,8 +370,8 @@ class MySqlLibraryDB {
     }
     await this._transaction(async (cx) => {
       await this.run(
-        `UPDATE ${this.t.users} SET username = ?, password_hash = ?, salt = ?, active = ?, role = ?, permissions = ? WHERE id = ?`,
-        [name, hash, salt, isActive ? 1 : 0, roleFor(list), list.join(','), user.id],
+        `UPDATE ${this.t.users} SET username = ?, password_hash = ?, salt = ?, active = ?, role = ?, permissions = ?, updated_at = ? WHERE id = ?`,
+        [name, hash, salt, isActive ? 1 : 0, roleFor(list), list.join(','), now(), user.id],
         cx
       );
       if (password && user.username.toLowerCase() === DEFAULT_USERNAME) await this._setSetting('default_credentials', '0', cx);
@@ -590,14 +618,15 @@ class MySqlLibraryDB {
         checks.remarks(remarks)
       );
       const days = Number(duration);
-      const issueDate = today();
+      const at = now();
+      const issueDate = at.slice(0, 10);
       const dueDate = addDays(issueDate, days);
       const res = await this.run(
         `INSERT INTO ${this.t.issues} (book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date,
-           duration, due_date, issue_remarks, issued_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [book.id, book.book_no, book.name, clean(userName), clean(rank), clean(number), clean(dept), issueDate, days, dueDate,
-          clean(remarks), now()],
+           issue_time, duration, due_date, issue_remarks, issued_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [book.id, book.book_no, book.name, clean(userName), clean(rank), clean(number), clean(dept), issueDate, at.slice(11), days, dueDate,
+          clean(remarks), at],
         cx
       );
       return this.get(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE id = ?`, [res.insertId], cx);
@@ -605,7 +634,8 @@ class MySqlLibraryDB {
   }
 
   async returnBook({ bookNo, userName, remarks } = {}) {
-    const returnDate = today();
+    const at = now();
+    const returnDate = at.slice(0, 10);
     return this._transaction(async (cx) => {
       // Read and lock the book (and its open issue) in one query, so two librarians cannot act on it at once.
       const book = clean(bookNo) ? await this.get(`${this._bookSelect()} WHERE b.book_no = ? FOR UPDATE`, [clean(bookNo)], cx) : null;
@@ -617,8 +647,9 @@ class MySqlLibraryDB {
       }
       const late = returnDate > book.due_date ? 1 : 0;
       await this.run(
-        `UPDATE ${this.t.issues} SET return_date = ?, return_user = ?, return_remarks = ?, returned_late = ?, returned_at = ? WHERE id = ?`,
-        [returnDate, clean(userName), clean(remarks), late, now(), book.issue_id],
+        `UPDATE ${this.t.issues} SET return_date = ?, return_time = ?, return_user = ?, return_remarks = ?, returned_late = ?, returned_at = ?
+          WHERE id = ?`,
+        [returnDate, at.slice(11), clean(userName), clean(remarks), late, at, book.issue_id],
         cx
       );
       return this.get(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE id = ?`, [book.issue_id], cx);
@@ -703,7 +734,8 @@ class MySqlLibraryDB {
     const params = [asOn, asOn, asOn];
     this._textFilters(where, params, { userName, bookNo, q });
     return byBarcode(await this.all(
-      `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, due_date, return_date, issue_remarks,
+      `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date,
+              IFNULL(issue_time, TIME(issued_at)) AS issue_time, due_date, return_date, issue_remarks,
               DATEDIFF(?, due_date) AS days_overdue
          FROM ${this.t.issues}
         WHERE ${where.join(' AND ')}
@@ -802,10 +834,11 @@ class MySqlLibraryDB {
   async replaceData(data) {
     const cols = {
       books: ['id', 'book_no', 'name', 'author', 'publisher', 'category', 'lf', 'location', 'rack', 'created_at', 'updated_at'],
-      issues: ['id', 'book_id', 'book_no', 'book_name', 'issue_user', 'issue_rank', 'issue_number', 'issue_dept', 'issue_date', 'duration',
-        'due_date', 'issue_remarks', 'return_date', 'return_user', 'return_remarks', 'returned_late', 'issued_at', 'returned_at'],
-      users: ['id', 'username', 'password_hash', 'salt', 'active', 'role', 'permissions'],
-      settings: ['key', 'value'],
+      issues: ['id', 'book_id', 'book_no', 'book_name', 'issue_user', 'issue_rank', 'issue_number', 'issue_dept', 'issue_date', 'issue_time',
+        'duration', 'due_date', 'issue_remarks', 'return_date', 'return_time', 'return_user', 'return_remarks', 'returned_late', 'issued_at',
+        'returned_at'],
+      users: ['id', 'username', 'password_hash', 'salt', 'active', 'role', 'permissions', 'created_at', 'updated_at'],
+      settings: ['key', 'value', 'updated_at'],
     };
     for (const name of TABLES) if (!Array.isArray(data && data[name])) throw new UserError('The selected file is not a valid library backup.');
     if (!data.users.length) throw new UserError('The backup has no user accounts, so nobody could sign in. It was not restored.');
@@ -820,6 +853,7 @@ class MySqlLibraryDB {
       }
     });
     await this.init(); // default settings for anything the backup did not have
+    for (const sql of fillTimes(this.t.issues)) await this.run(sql); // backups from before issue_time / return_time
     return true;
   }
 }
@@ -830,7 +864,7 @@ function defaults(table, col) {
   if (col === 'active') return 1;
   if (col === 'role') return 'librarian';
   if (col === 'returned_late') return 0;
-  if (['return_date', 'return_user', 'return_remarks', 'returned_at', 'book_id', 'permissions'].includes(col)) return null;
+  if (['return_date', 'return_user', 'return_remarks', 'returned_at', 'book_id', 'permissions', 'issue_time', 'return_time'].includes(col)) return null;
   return '';
 }
 

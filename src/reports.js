@@ -18,6 +18,23 @@ const STATUS_LABELS = {
   AllReturned: 'All returned',
 };
 
+// Issue / return time of day: the issue_time / return_time columns, or the time part of the full
+// timestamps where those are empty.
+const timePart = (stamp) => (stamp && String(stamp).length > 10 ? String(stamp).slice(11, 19) : null);
+const withTimes = (r) => ({
+  ...r,
+  issue_time: r.issue_time || timePart(r.issued_at),
+  return_time: r.return_time || (r.return_date ? timePart(r.returned_at) : null),
+});
+
+// '17:05:00' -> '05:05 PM'
+function displayTime(t) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(t || ''));
+  if (!m) return '';
+  const h = Number(m[1]);
+  return `${String(h % 12 || 12).padStart(2, '0')}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
 const REPORTS = {
   books: {
     title: 'Total Books Report',
@@ -55,8 +72,10 @@ const REPORTS = {
       { key: 'issue_number', label: 'Number', width: 12 },
       { key: 'issue_dept', label: 'Dept', width: 12 },
       { key: 'issue_date', label: 'Issue Date', width: 12, date: true },
+      { key: 'issue_time', label: 'Issue Time', width: 11, time: true },
       { key: 'due_date', label: 'Due Date', width: 12, date: true },
       { key: 'return_date', label: 'Return Date', width: 12, date: true },
+      { key: 'return_time', label: 'Return Time', width: 11, time: true },
       { key: 'return_user', label: 'Returned By', width: 18 },
       { key: 'status', label: 'Status', width: 14 },
       { key: 'remarks', label: 'Remarks', width: 36 },
@@ -69,7 +88,7 @@ const REPORTS = {
           const remarks = [];
           if (r.issue_remarks) remarks.push(`Issue: ${r.issue_remarks}`);
           if (r.return_remarks) remarks.push(`Return: ${r.return_remarks}`);
-          return { ...r, remarks: remarks.join('; ') };
+          return { ...withTimes(r), remarks: remarks.join('; ') };
         });
       const dateLabel = DATE_BY_LABELS[dateBy] || 'Issue date';
       const range = f.from || f.to ? `${dateLabel}: ${f.from ? display(f.from) : 'Start'} to ${f.to ? display(f.to) : 'Any'}` : `${dateLabel}: All`;
@@ -90,12 +109,13 @@ const REPORTS = {
       { key: 'issue_number', label: 'Number', width: 12 },
       { key: 'issue_dept', label: 'Dept', width: 12 },
       { key: 'issue_date', label: 'Issue Date', width: 12, date: true },
+      { key: 'issue_time', label: 'Issue Time', width: 11, time: true },
       { key: 'due_date', label: 'Due Date', width: 12, date: true },
       { key: 'days_overdue', label: 'Days Overdue', width: 14, num: true },
     ],
     async build(db, f) {
       const asOn = f.asOn || today();
-      const rows = await db.overdueList(asOn, { userName: f.userName, bookNo: f.bookNo });
+      const rows = (await db.overdueList(asOn, { userName: f.userName, bookNo: f.bookNo })).map(withTimes);
       const parts = [`As on: ${display(asOn)}`, `Name: ${f.userName || 'All'}`];
       if (f.bookNo) parts.push(`Barcode No: ${f.bookNo}`);
       if (f.q) parts.push(`Search: "${f.q}"`);
@@ -121,6 +141,7 @@ function rowText(columns, row) {
       parts.push(display(text.slice(0, 10)), `${d} ${MONTHS[Number(m) - 1] || ''} ${y}`);
     }
     if (col.num) parts.push(`${text} ${Number(v) === 1 ? 'day' : 'days'}`);
+    if (col.time) parts.push(displayTime(text));
   }
   return parts.join('\n').toLowerCase();
 }
@@ -143,7 +164,7 @@ async function buildReport(db, type, filters = {}) {
   return {
     type,
     title: def.title,
-    columns: def.columns.map(({ key, label, date, num }) => ({ key, label, date: !!date, num: !!num })),
+    columns: def.columns.map(({ key, label, date, num, time }) => ({ key, label, date: !!date, num: !!num, time: !!time })),
     generatedOn: new Date().toLocaleString('en-GB'),
     ...result,
     rows,
@@ -154,7 +175,7 @@ async function buildReport(db, type, filters = {}) {
 // Empty cells print as "-" so blank fields are visible in exports.
 function cellText(col, row) {
   const v = row[col.key];
-  const text = v == null ? '' : col.date ? display(v) : String(v).trim();
+  const text = v == null ? '' : col.date ? display(v) : col.time ? displayTime(v) : String(v).trim();
   return text || '-';
 }
 
@@ -261,7 +282,7 @@ async function toHtml(db, type, filters) {
   .st-returned-late { background: #fef3c7; color: #92400e; }
 </style></head><body>
 <div class="head">
-  <div><div class="org">${escapeHtml(ORG_NAME)}</div><div class="brand">Library Management System</div><h1>${escapeHtml(rep.title)}</h1></div>
+  <div><div class="org">${escapeHtml(ORG_NAME)}</div><div class="brand">2CQR Garuda LMS</div><h1>${escapeHtml(rep.title)}</h1></div>
   <div class="meta">${escapeHtml(rep.filterText)}<br>Generated on ${escapeHtml(rep.generatedOn)}</div>
 </div>
 <div class="summary">${escapeHtml(rep.summary)}</div>

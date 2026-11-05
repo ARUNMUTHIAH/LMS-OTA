@@ -24,7 +24,6 @@ function setHtml(el, html) {
   el.replaceChildren(DOMPurify.sanitize(html, PURIFY));
 }
 const icon = (name) => `<svg><use href="#i-${name}"/></svg>`;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function isoToday() {
   const d = new Date();
@@ -35,21 +34,23 @@ function addDays(iso, n) {
   const dt = new Date(y, m - 1, d + n);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 }
-// '2026-09-28' -> '28 Sep 2026'
+// Dates are shown day-month-year, as in the reports: '2026-09-28' -> '28-09-2026'
 function fmtDate(iso) {
   if (!iso) return '';
   const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${d} ${MONTHS[Number(m) - 1]} ${y}`;
+  return `${d}-${m}-${y}`;
 }
-// '2026-09-28 14:05:00' -> '28 Sep, 2:05 PM'
+// '14:05:00' -> '02:05 PM'
+function fmtTime(t) {
+  if (!t) return '';
+  const [hh, mm] = String(t).split(':').map(Number);
+  return `${String(hh % 12 || 12).padStart(2, '0')}:${String(mm || 0).padStart(2, '0')} ${hh >= 12 ? 'PM' : 'AM'}`;
+}
+// '2026-09-28 14:05:00' -> '28-09-2026 02:05 PM'
 function fmtDateTime(s) {
   if (!s) return '';
   const [date, time = '00:00'] = s.split(' ');
-  const [, m, d] = date.split('-');
-  let [hh, mm] = time.split(':').map(Number);
-  const ap = hh >= 12 ? 'PM' : 'AM';
-  hh = hh % 12 || 12;
-  return `${Number(d)} ${MONTHS[Number(m) - 1]}, ${hh}:${String(mm).padStart(2, '0')} ${ap}`;
+  return `${fmtDate(date)} ${fmtTime(time)}`;
 }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function debounce(fn, ms = 220) {
