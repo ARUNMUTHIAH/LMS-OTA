@@ -194,19 +194,22 @@ function multiSelect(el, { onChange = () => {}, noun = 'selected' } = {}) {
   let options = [];
   const picked = new Set();
   const all = el.dataset.placeholder || 'All';
-  setHtml(el, `<button type="button" class="select ms-btn" aria-haspopup="listbox" aria-expanded="false"><span class="ms-text">${esc(all)}</span></button>
+  setHtml(el, `<button type="button" class="ms-btn" aria-haspopup="listbox" aria-expanded="false"><span class="ms-text">${esc(all)}</span><span class="ms-count" hidden></span>${icon('chev-r')}</button>
     <div class="ms-menu" role="listbox" aria-multiselectable="true" hidden></div>`);
   const btn = el.querySelector('.ms-btn');
   const menu = el.querySelector('.ms-menu');
   const label = () => {
     const list = options.filter((o) => picked.has(o));
-    el.querySelector('.ms-text').textContent = !list.length ? all : list.length <= 2 ? list.join(', ') : `${list.length} ${noun}`;
+    el.querySelector('.ms-text').textContent = !list.length ? all : list.length === 1 ? list[0] : `${list.length} ${noun}`;
+    const count = el.querySelector('.ms-count');
+    count.hidden = list.length < 2;
+    count.textContent = list.length;
     btn.title = list.length ? list.join(', ') : all;
     el.classList.toggle('ms-on', list.length > 0);
   };
   const draw = () => {
-    setHtml(menu, `<label class="ms-item ms-all"><input type="checkbox" data-all ${picked.size ? '' : 'checked'} /><span>${esc(all)}</span></label>
-      ${options.map((o, i) => `<label class="ms-item"><input type="checkbox" data-i="${i}" ${picked.has(o) ? 'checked' : ''} /><span>${esc(o)}</span></label>`).join('')}
+    setHtml(menu, `<label class="ms-item ms-all ${picked.size ? '' : 'on'}"><input type="checkbox" data-all ${picked.size ? '' : 'checked'} /><span>${esc(all)}</span></label>
+      ${options.map((o, i) => `<label class="ms-item ${picked.has(o) ? 'on' : ''}"><input type="checkbox" data-i="${i}" ${picked.has(o) ? 'checked' : ''} /><span>${esc(o)}</span></label>`).join('')}
       ${options.length ? '' : '<div class="ms-empty muted">Nothing to choose yet</div>'}`);
     label();
   };

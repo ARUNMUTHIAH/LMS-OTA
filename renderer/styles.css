@@ -877,13 +877,38 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .audit-cat { font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 
 /* Multi-select dropdown (Audit Log filters) */
-.ms { position: relative; }
-.ms-btn { min-width: 160px; max-width: 240px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ms-on .ms-btn { border-color: var(--primary); color: var(--primary-600); font-weight: 600; }
-.ms-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 100%; max-height: 280px; overflow-y: auto;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(16, 24, 40, .14); padding: 4px; }
-.ms-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.ms { position: relative; width: 180px; }
+.ms-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 10px 0 12px;
+  background: #fff; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  font: inherit; font-size: 13.5px; color: var(--ink); text-align: left; cursor: pointer;
+  transition: border-color .12s, box-shadow .12s;
+}
+.ms-btn:hover { border-color: #9ca3af; }
+.ms-btn:focus-visible, .ms-btn[aria-expanded="true"] { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.ms-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-count { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--primary); color: #fff;
+  font-size: 11.5px; font-weight: 700; line-height: 20px; text-align: center; }
+.ms-btn svg { flex: none; width: 14px; height: 14px; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+.ms-btn[aria-expanded="true"] svg { transform: rotate(-90deg); }
+.ms-on .ms-btn { border-color: var(--primary); }
+.ms-on .ms-text { color: var(--primary-600); font-weight: 600; }
+
+.ms-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 100%; min-width: 200px; max-height: 380px; overflow-y: auto;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 28px rgba(16, 24, 40, .14); padding: 6px;
+}
+.ms-item {
+  display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px; margin: 0;
+  border-radius: 6px; cursor: pointer; font-size: 13.5px; color: var(--ink); white-space: nowrap; user-select: none;
+}
 .ms-item:hover { background: var(--surface-2); }
-.ms-item input { margin: 0; }
-.ms-all { border-bottom: 1px solid var(--line); border-radius: 0; margin-bottom: 2px; font-weight: 600; }
-.ms-empty { padding: 6px 8px; font-size: 12.5px; }
+.ms-item.on { background: var(--primary-50); color: var(--primary-600); font-weight: 600; }
+.ms-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Not the 34px text-box style used by .field inputs elsewhere */
+.ms .ms-item input[type=checkbox] {
+  flex: none; width: 16px; height: 16px; margin: 0; padding: 0; border: 0; box-shadow: none; cursor: pointer; accent-color: var(--primary);
+}
+.ms-all { margin-bottom: 4px; position: relative; }
+.ms-all::after { content: ''; position: absolute; left: 4px; right: 4px; bottom: -3px; border-bottom: 1px solid var(--line); }
+.ms-empty { padding: 8px 10px; font-size: 12.5px; }
