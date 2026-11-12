@@ -21,6 +21,7 @@ const PAGES = {
   issue: ['Issue Book', 'Enter the Barcode No, then the borrower details'],
   return: ['Return Book', 'Enter the Barcode No to receive the book back'],
   reports: ['Reports', 'View and export to Excel or PDF'],
+  audit: ['Audit Log', 'Who did what, and when: kept for one year, read only'],
   settings: ['Settings', 'Users, loan duration, return rules and data backup'],
 };
 
@@ -28,7 +29,7 @@ const PAGES = {
 // Screens it may not use are hidden; the server refuses their actions too.
 const ACCESS = window.Rules.access;
 const userPerms = () => (state.user ? (state.user.settingsOnly ? ['settings'] : ACCESS.permsOf(state.user)) : []);
-const can = (perm) => userPerms().includes(perm);
+const can = (perm) => userPerms().includes(perm === 'audit' ? 'settings' : perm); // Audit Log: for Settings access
 // The first page in the sidebar this account may open.
 const firstPage = () => Object.keys(PAGES).find(can) || 'dashboard';
 
@@ -50,6 +51,7 @@ async function go(page, opts = {}) {
     issue: () => resetCirc('issue'),
     return: () => resetCirc('return'),
     reports: () => loadReportsPage(opts),
+    audit: loadAuditPage,
     settings: loadSettings,
   };
   attempt(loaders[page]);
@@ -62,6 +64,18 @@ $$('.nav-item').forEach((a) =>
   })
 );
 
+/* ================= Logo ================= */
+// The library's own logo (Settings → Logo) on the sign-in page and in the sidebar; the Garuda
+// eagle when none is uploaded. Everything else (app icon, window, installers) keeps the eagle.
+const DEFAULT_LOGO = 'assets/icon.png';
+function applyLogo(dataUrl) {
+  for (const el of [$('#login-logo'), $('#side-logo')]) el.src = dataUrl || DEFAULT_LOGO;
+}
+async function loadLogo() {
+  const res = await window.api.brandLogo();
+  applyLogo(res.ok ? res.data : null);
+}
+
 /* ================= Login ================= */
 async function showLogin() {
   state.user = null;
@@ -72,6 +86,7 @@ async function showLogin() {
   if (state.user) return;
   $('#license-screen').hidden = true;
   $('#login-screen').hidden = false;
+  loadLogo(); // not awaited: the sign-in form is usable straight away
   $('#login-username').value = '';
   $('#login-password').value = '';
   if ($('#login-password').hidePassword) $('#login-password').hidePassword();
@@ -236,11 +251,9 @@ $('#login-settings-btn').addEventListener('click', () => {
   btn.addEventListener('click', submit);
 });
 
-function enterApp() {
-  $('#login-screen').hidden = true;
-  $('#app').hidden = false;
-  $('#who-name').textContent = state.user.username;
-  $('#avatar').textContent = state.user.username.charAt(0);
+// Shows only the screens the signed-in account may use. Also run when the librarian changes
+// their own access in Settings → Users.
+function applyAccess() {
   // Opened with the Settings password: only Settings, and "Sign out" goes back to the sign-in.
   const settingsOnly = !!state.user.settingsOnly;
   document.body.classList.toggle('settings-only', settingsOnly);
@@ -248,6 +261,17 @@ function enterApp() {
   // Screens and buttons this account may not use are hidden by a "no-<permission>" class (styles.css).
   for (const k of ACCESS.ALL) document.body.classList.toggle(`no-${k}`, !settingsOnly && !can(k));
   $('#who-role').textContent = settingsOnly ? 'Settings only' : ACCESS.accessLabel(userPerms());
+}
+
+function enterApp() {
+  lastActivity = Date.now(); // the idle hour starts at sign-in
+  $('#login-screen').hidden = true;
+  $('#app').hidden = false;
+  $('#who-name').textContent = state.user.username;
+  $('#avatar').textContent = state.user.username.charAt(0);
+  loadLogo();
+  applyAccess();
+  const settingsOnly = !!state.user.settingsOnly;
   const now = new Date();
   $('#today-label').textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   if (settingsOnly) {
@@ -269,6 +293,29 @@ function enterApp() {
 $('#logout-btn').addEventListener('click', async () => {
   const ok = await confirmDialog({ title: 'Sign out?', message: 'You will need your password to sign back in.', okLabel: 'Sign out' });
   if (!ok) return;
+  await window.api.logout();
+  showLogin();
+});
+
+// Auto sign-out: after 1 hour with no mouse, keyboard or scroll activity, every account (any
+// role or access, Settings-only too) is signed out. The server also ends a session unused for an
+// hour. Checked every 30 seconds, so a PC waking from sleep signs out straight away.
+const IDLE_LIMIT_MS = 60 * 60e3;
+let lastActivity = Date.now();
+const markActive = () => (lastActivity = Date.now());
+for (const ev of ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart', 'scroll']) {
+  document.addEventListener(ev, markActive, { capture: true, passive: true });
+}
+setInterval(async () => {
+  if (!state.user || $('#app').hidden || Date.now() - lastActivity < IDLE_LIMIT_MS) return;
+  state.user = null; // once only
+  await window.api.logout('idle').catch(() => {});
+  await showLogin();
+  toast('You were signed out because the software was not used for 1 hour. Please sign in again.', 'info');
+}, 30e3);
+
+// Settings opened from the sign-in page (no sidebar): back to the sign-in page.
+$('#settings-exit-btn').addEventListener('click', async () => {
   await window.api.logout();
   showLogin();
 });

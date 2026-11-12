@@ -17,4 +17,4 @@ edit(STAGE, 'package.json', (s) => {
 });
 checkProtectBuild(STAGE);
 const pkg = require('../package.json');
-console.log(`\nDone: ${OUT}\\${pkg.build.productName} Setup ${pkg.version}.exe`);
+console.log(`\nDone: ${OUT}\\${pkg.build.nsis.artifactName.replace('${version}', pkg.version)}`);

@@ -1,4 +1,4 @@
-# Technical Library - CGAS Chennai — 2CQR Garuda LMS
+# Technical Library - CGAS Chennai — 2CQR GARUDA
 
 Offline library management desktop app for Windows 10/11 (64-bit). Built with Electron, with a local SQLite database via sql.js.
 

@@ -171,8 +171,8 @@ const expectUserError = (fn, pattern) =>
   assert.ok(fs.statSync(xlsx).size > 4000, 'excel written');
   const xwb = new (require('exceljs').Workbook)();
   await xwb.xlsx.readFile(xlsx);
-  assert.strictEqual(xwb.worksheets[0].getCell(1, 1).value, 'Technical Library - CGAS Chennai', 'library name heads the Excel report');
-  assert.ok((await reports.toHtml(db, 'books', {})).includes('Technical Library - CGAS Chennai'), 'library name heads the PDF report');
+  assert.strictEqual(xwb.worksheets[0].getCell(1, 1).value, '2CQR GARUDA', 'app name heads the Excel report');
+  assert.ok((await reports.toHtml(db, 'books', {})).includes('2CQR GARUDA'), 'app name heads the PDF report');
   assert.ok((await reports.toHtml(db, 'books', {})).includes('>S.No</th>'), 'PDF report numbers rows under S.No');
   assert.ok((await reports.toHtml(db, 'overdue', { asOn: addDays(t, -1) })).includes('Wings of Fire'));
 
@@ -418,7 +418,8 @@ const expectUserError = (fn, pattern) =>
       8: { role: 'librarian', permissions: null }, // ...and Full access
       9: { role: 'viewer', permissions: 'dashboard,books,issue,return,reports' }, // Counter staff
     };
-    const userRow = (id) => ({ id, username: 'x', active: true, ...rows[id], perms: access.permsOf(rows[id]) });
+    // As the database layer returns an account (userOut): role and perms, no raw permissions column.
+    const userRow = (id) => ({ id, username: 'x', active: true, role: rows[id].role, perms: access.permsOf(rows[id]) });
     const stubs = {
       verifyLogin: async (username) => userRow(ids[username]),
       getUser: async (id) => userRow(id),
@@ -427,7 +428,11 @@ const expectUserError = (fn, pattern) =>
       saveBook: async () => ({ id: 1 }),
       deleteBook: async () => true,
       issueBook: async () => ({}),
+      getBook: async () => null,
+      addAudit: async (e) => logged.push(e),
+      purgeAudit: async () => 0,
     };
+    const logged = [];
     for (const [k, fn] of Object.entries(stubs)) [saved[k], P[k]] = [P[k], fn];
     try {
       const api = createApi(null);
@@ -450,9 +455,40 @@ const expectUserError = (fn, pattern) =>
       assert.deepStrictEqual(access.normalizePerms(['books_delete', 'nope', 'dashboard']), ['dashboard', 'books', 'books_delete']);
       assert.strictEqual(access.accessLabel(access.ALL), 'Full access');
       assert.strictEqual(access.accessLabel(['issue']), 'Custom');
+      // An account as the server sends it (perms list, role "viewer") keeps its own access.
+      assert.strictEqual(access.accessLabel(access.permsOf(userRow(9))), 'Counter staff');
+      assert.deepStrictEqual(access.permsOf({ role: 'viewer', perms: ['issue'] }), ['issue']);
+
+      // Audit log: sign-ins, changes and refused attempts are written with the session's account;
+      // reads are not; nothing in the API can change or delete an entry.
+      await new Promise((r) => setImmediate(r));
+      const actions = logged.map((e) => `${e.action}:${e.result}`);
+      assert.ok(actions.includes('Signed in:Success'), 'sign-in logged');
+      assert.ok(actions.includes('Book added:Success'), 'book save logged');
+      assert.ok(actions.includes('Book issued:Success'), 'issue logged');
+      assert.ok(logged.some((e) => e.action === 'Book deleted' && e.result === 'Failed' && /does not have access/.test(e.details)), 'refused change logged');
+      assert.ok(!logged.some((e) => /search/i.test(e.action)), 'reads are not logged');
+      await assert.rejects(call(l, 'logEvent', 'made_up', {}), /Unknown event/, 'only known app events');
+      for (const m of ['deleteAudit', 'updateAudit', 'addAudit', 'purgeAudit', 'clearAudit']) {
+        await assert.rejects(call(l, m), /Unknown method/, `no ${m} in the API`);
+      }
+      await assert.rejects(call(v, 'auditLog', {}), /does not have access/, 'view only cannot see the audit log');
     } finally {
       Object.assign(P, saved);
     }
+  }
+
+  // Logo (Settings → Logo): only PNG / JPEG data URLs are kept; empty removes it (database stubbed).
+  {
+    const { MySqlLibraryDB } = require('../server/library-db');
+    const sql = [];
+    const ldb = new MySqlLibraryDB({ query: async (q) => (sql.push(q), [[]]) }, '');
+    await assert.rejects(ldb.setLogo('data:text/html;base64,PHNjcmlwdD4='), /PNG or JPEG/);
+    await assert.rejects(ldb.setLogo('javascript:alert(1)'), /PNG or JPEG/);
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    assert.strictEqual(await ldb.setLogo(png), png, 'a PNG logo is saved');
+    assert.strictEqual(await ldb.setLogo(null), null, 'removing the logo');
+    assert.ok(sql.some((q) => /DELETE FROM settings/.test(q)), 'removal deletes the setting');
   }
 
   fs.rmSync(dir, { recursive: true, force: true });

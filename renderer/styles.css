@@ -1,4 +1,4 @@
-/* 2CQR Garuda LMS — professional theme: neutral surfaces, single blue accent, flat UI. */
+/* 2CQR GARUDA — professional theme: neutral surfaces, single blue accent, flat UI. */
 :root {
   --bg: #f3f5f8;
   --surface: #ffffff;
@@ -118,9 +118,13 @@ input, select, textarea { font-family: inherit; font-size: 13.5px; color: var(--
 .login-panel { width: 380px; }
 .login-settings { position: fixed; top: 16px; right: 16px; width: 40px; height: 40px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(16, 24, 40, .06); z-index: 5; }
 .login-settings svg { width: 20px; height: 20px; }
-/* Opened with the Settings password: only the Settings page in the sidebar. */
-.settings-only .nav-item:not([data-page="settings"]),
-.settings-only .nav-label { display: none; }
+/* Opened with the Settings password from the sign-in page: Settings on its own, no sidebar;
+   "Back to sign-in" in the top bar takes its place. */
+.settings-only .sidebar { display: none; }
+.settings-only .app { grid-template-columns: 1fr; }
+.settings-exit { display: none; }
+.settings-only .settings-exit { display: inline-flex; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
 /* User access: the body gets "no-<permission>" for each one the account lacks (renderer/app.js). */
 .no-dashboard .nav-item[data-page="dashboard"],
 .no-books .nav-item[data-page="books"],
@@ -128,6 +132,7 @@ input, select, textarea { font-family: inherit; font-size: 13.5px; color: var(--
 .no-return .nav-item[data-page="return"],
 .no-reports .nav-item[data-page="reports"],
 .no-settings .nav-item[data-page="settings"],
+.no-settings .nav-item[data-page="audit"],
 .no-issue.no-return .nav-label-circ,
 .no-reports.no-settings .nav-label:not(.nav-label-circ),
 .no-issue [data-goto-page="issue"],
@@ -145,10 +150,11 @@ input, select, textarea { font-family: inherit; font-size: 13.5px; color: var(--
 .settings-offline #duration-form,
 .settings-offline #return-rule-form,
 .settings-offline #backup-card,
+.settings-offline #logo-card,
 .settings-offline .users-card,
 .settings-offline #ab-now { display: none; }
 .login-brand { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 22px; }
-.login-brand img { width: 42px; height: 42px; border-radius: 9px; }
+.login-brand img { width: 60px; height: 60px; border-radius: 0; } /* Garuda logo: its own rounded frame */
 .login-brand strong { display: block; font-size: 17px; font-weight: 700; }
 .login-brand span { font-size: 12.5px; color: var(--muted); }
 .login-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 4px 16px rgba(16, 24, 40, .06); padding: 28px; border-top: 3px solid var(--primary); }
@@ -165,7 +171,7 @@ input, select, textarea { font-family: inherit; font-size: 13.5px; color: var(--
 .app { display: grid; grid-template-columns: 232px 1fr; height: 100vh; }
 .sidebar { background: var(--sidebar); color: var(--sidebar-ink); display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 16px 16px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
-.brand img { width: 32px; height: 32px; border-radius: 7px; }
+.brand img { width: 38px; height: 38px; border-radius: 0; flex: none; }
 .brand strong { display: block; color: #fff; font-size: 13.5px; font-weight: 600; }
 .brand span { font-size: 11.5px; color: #7f8ea6; }
 .nav { display: flex; flex-direction: column; gap: 1px; flex: 1; padding: 10px 10px; }
@@ -805,15 +811,79 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13px; }
 #db-fix a { color: var(--primary); }
 @media (max-width: 1000px) { .dbconn-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-/* ================= User access (Settings → Users) ================= */
-.modal.small:has(.perm-list) { max-width: 520px; }
-.access-name { font-weight: 600; color: var(--primary-600); }
-.access-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+/* ================= Users (Settings → Users) ================= */
+/* Table */
+.users-title h3 { flex-wrap: wrap; }
+.users-summary { font-size: 12px; font-weight: 500; color: var(--muted); }
+.users-summary:empty { display: none; }
+.users-actions { align-items: center; flex-wrap: wrap; }
+.users-table td { padding-top: 10px; padding-bottom: 10px; }
+.users-table tr.inactive .user-name strong { color: var(--muted); }
+.user-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.user-name strong { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.access-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.access-list { font-size: 12px; color: var(--muted); max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pill-amber { background: var(--amber-50); color: #92400e; border-color: #fde68a; }
+.users-table .actions { width: 96px; }
+
+/* New / Edit User dialog */
+.modal.user-modal { max-width: 720px; }
+.user-modal .modal-body { padding: 0; }
+.user-form-section { padding: 16px 20px; }
+.user-form-section + .user-form-section { border-top: 1px solid var(--line); background: var(--surface-2); }
+.user-form-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.user-form-title > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.user-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.user-form-row .field { margin-bottom: 12px; }
+.user-status { margin-bottom: 0; }
+.user-status .hint { margin-top: 1px; }
+.user-modal .form-error { margin: 0 20px 16px; }
+.access-name { font-weight: 600; color: var(--primary-600); text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+.access-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.access-presets .btn { text-transform: none; letter-spacing: 0; }
 .access-presets .btn.active { border-color: var(--primary-600); color: var(--primary-600); background: var(--primary-50); }
-.perm-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.perm { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
-.perm:has(input:checked) { border-color: var(--primary-600); background: var(--primary-50); }
-.perm input { margin-top: 2px; flex: none; }
-.perm span { display: flex; flex-direction: column; min-width: 0; }
-.perm strong { font-size: 12.5px; color: var(--ink); }
+.perm-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.perm { display: flex; align-items: flex-start; gap: 10px; padding: 8px 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; background: #fff; transition: border-color .12s, background .12s; }
+.perm:hover { border-color: #9ca3af; }
+.perm:has(input:checked) { border-color: var(--primary); background: var(--primary-50); }
+.perm:has(input:disabled) { cursor: not-allowed; opacity: .75; }
+.perm:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 1px; }
+.perm input[type='checkbox'] { width: 16px; height: 16px; padding: 0; margin: 1px 0 0; border: 0; border-radius: 0; box-shadow: none; flex: none; accent-color: var(--primary); cursor: inherit; }
+.perm span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.perm strong { font-size: 12.5px; font-weight: 600; color: var(--ink); line-height: 1.3; }
 .perm small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.perm-hint { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+@media (max-width: 640px) {
+  .user-form-row, .perm-list { grid-template-columns: 1fr; }
+  .user-form-row { gap: 0; }
+}
+
+/* ================= Logo (Settings → Logo; sign-in page and sidebar) ================= */
+#login-logo, #side-logo { object-fit: contain; }
+.logo-preview { display: flex; align-items: center; gap: 14px; padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 4px; }
+.logo-preview img { width: 72px; height: 72px; object-fit: contain; flex: none; background: #fff; border-radius: 6px; }
+.logo-preview div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.logo-preview strong { font-size: 13px; color: var(--ink); }
+.logo-preview span { font-size: 12px; }
+
+/* ================= Audit Log (read only) ================= */
+.audit-note { margin: 0 0 16px; }
+.audit-table td { vertical-align: top; }
+.audit-table .audit-details { min-width: 260px; max-width: 520px; white-space: normal; line-height: 1.45; }
+.audit-table .audit-details span { display: block; }
+.audit-table tr.failed td { background: var(--red-50); }
+.badge-success { background: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+.badge-failed { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.audit-cat { font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+
+/* Multi-select dropdown (Audit Log filters) */
+.ms { position: relative; }
+.ms-btn { min-width: 160px; max-width: 240px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-on .ms-btn { border-color: var(--primary); color: var(--primary-600); font-weight: 600; }
+.ms-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 100%; max-height: 280px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgba(16, 24, 40, .14); padding: 4px; }
+.ms-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.ms-item:hover { background: var(--surface-2); }
+.ms-item input { margin: 0; }
+.ms-all { border-bottom: 1px solid var(--line); border-radius: 0; margin-bottom: 2px; font-weight: 600; }
+.ms-empty { padding: 6px 8px; font-size: 12.5px; }

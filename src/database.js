@@ -26,10 +26,10 @@ const ISSUE_SQL = {
          FROM issues WHERE id = ?`,
   issuedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at
-         FROM issues WHERE issue_date = ? ORDER BY id DESC`,
+         FROM issues WHERE issue_date = ? ORDER BY issued_at DESC, id DESC`,
   returnedOn: `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at
-         FROM issues WHERE return_date = ? ORDER BY returned_at DESC`,
+         FROM issues WHERE return_date = ? ORDER BY returned_at DESC, id DESC`,
 };
 
 // Values for the CAT / LOC / Rack filter menus.
@@ -669,7 +669,7 @@ class LibraryDB {
   }
 
   recentActivity(limit = 12) {
-    return byBarcode(this.all(
+    return this.all(
       `SELECT action, book_no, book_name, user_name, at, due_date, late FROM (
          SELECT 'Issued' AS action, book_no, book_name, issue_user AS user_name, issued_at AS at, due_date, 0 AS late FROM issues
          UNION ALL
@@ -677,15 +677,15 @@ class LibraryDB {
            FROM issues WHERE return_date IS NOT NULL
        ) ORDER BY at DESC LIMIT ?`,
       [limit]
-    ));
+    );
   }
 
   todaysActivity(kind) {
     const t = today();
     if (kind === 'issue') {
-      return byBarcode(this.all(ISSUE_SQL.issuedOn, [t]));
+      return this.all(ISSUE_SQL.issuedOn, [t]);
     }
-    return byBarcode(this.all(ISSUE_SQL.returnedOn, [t]));
+    return this.all(ISSUE_SQL.returnedOn, [t]);
   }
 
   // ---------- Dashboard ----------
@@ -720,14 +720,15 @@ class LibraryDB {
     const where = ['issue_date <= ?', 'due_date < ?', '(return_date IS NULL OR return_date > ?)'];
     const params = [asOn, asOn, asOn];
     this._textFilters(where, params, { userName, bookNo, q });
-    return byBarcode(this.all(
+    // Latest action at top: newest issue date-time first.
+    return this.all(
       `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, due_date, return_date, issue_remarks,
               CAST(julianday(?) - julianday(due_date) AS INTEGER) AS days_overdue
          FROM issues
         WHERE ${where.join(' AND ')}
-        ORDER BY days_overdue DESC, book_no`,
+        ORDER BY COALESCE(issued_at, issue_date) DESC, id DESC`,
       [asOn, ...params]
-    ));
+    );
   }
 
   // Shared text filters for circulation lists: borrower, accession number and free-text search.
@@ -799,8 +800,9 @@ class LibraryDB {
         throw new UserError('Unknown status filter.');
     }
     this._textFilters(where, params, { userName, bookNo, q });
-    const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
-    return byBarcode(this.all(
+    // Latest action at top: each row's return time if returned, otherwise its issue time, newest first.
+    const order = 'COALESCE(returned_at, return_date, issued_at, issue_date) DESC, id DESC';
+    return this.all(
       `SELECT id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, duration, due_date, issue_remarks,
          return_date, return_user, return_remarks, returned_late, issued_at, returned_at,
               CASE
@@ -811,7 +813,7 @@ class LibraryDB {
          FROM issues ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY ${order}`,
       [t, ...params]
-    ));
+    );
   }
 
   // ---------- Backup / restore ----------

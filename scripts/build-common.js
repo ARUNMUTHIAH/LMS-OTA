@@ -17,7 +17,7 @@ function stageApp(stage) {
     fs.cpSync(path.join(ROOT, item), path.join(stage, item), { recursive: true });
   }
   fs.mkdirSync(path.join(stage, 'server'));
-  for (const item of ['server/api.js', 'server/library-db.js', 'db-config.json']) {
+  for (const item of ['server/api.js', 'server/library-db.js', 'server/audit.js', 'db-config.json']) {
     if (fs.existsSync(path.join(ROOT, item))) fs.cpSync(path.join(ROOT, item), path.join(stage, item));
   }
   fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(stage, 'node_modules'), 'junction');
@@ -35,7 +35,7 @@ function mustReplace(s, from, to) {
 
 // Scripts that go into the installer (tests and build scripts do not).
 function appScripts(stage) {
-  const list = ['main.js', 'preload.js', 'server/api.js', 'server/library-db.js'];
+  const list = ['main.js', 'preload.js', 'server/api.js', 'server/library-db.js', 'server/audit.js'];
   for (const dir of ['src', 'renderer']) {
     for (const name of fs.readdirSync(path.join(stage, dir))) if (name.endsWith('.js')) list.push(`${dir}/${name}`);
   }

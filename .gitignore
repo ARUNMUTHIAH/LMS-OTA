@@ -7,6 +7,7 @@ dist/
 .build-general/
 .build-technical/
 dist-general/
+dist-all/
 server/node_modules/
 !server/.env.example
 db-config.json

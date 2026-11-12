@@ -6,7 +6,7 @@
 // settings.js, license.js, start.js. Keep that order in index.html when adding or renaming a file.
 
 /* ================= Reports ================= */
-const DATE_BY_TEXT = { issue: 'issued', return: 'returned', due: 'due back' };
+const DATE_BY_TEXT = { issue: 'issued', return: 'returned', due: 'with overdue date' };
 const repPage = { page: 1, size: 25 };
 let reportRows = null;
 
@@ -55,9 +55,9 @@ function updateReportHint() {
     const f = $('#rf-from').value;
     const t = $('#rf-to').value;
     const range = f && t ? (f === t ? `on ${fmtDate(f)}` : `between ${fmtDate(f)} and ${fmtDate(t)}`) : f ? `on or after ${fmtDate(f)}` : t ? `on or before ${fmtDate(t)}` : 'on any date';
-    setHtml(hint, `${icon('calendar')}<span>Showing books <b>${DATE_BY_TEXT[by]}</b> ${esc(range)}. Change “Date based on” to filter by issue, return or due date.</span>`);
+    setHtml(hint, `${icon('calendar')}<span>Showing books <b>${DATE_BY_TEXT[by]}</b> ${esc(range)}. Latest action at top, sorted by date-time descending.</span>`);
   } else if (state.report === 'overdue') {
-    setHtml(hint, `${icon('alert')}<span>Books that were past their due date and not yet returned on <b>${esc(fmtDate($('#rf-ason').value || isoToday()))}</b>.</span>`);
+    setHtml(hint, `${icon('alert')}<span>Books overdue and not yet returned on <b>${esc(fmtDate($('#rf-ason').value || isoToday()))}</b>. Latest action at top, sorted by date-time descending.</span>`);
   } else {
     setHtml(hint, `${icon('books')}<span>All books in the library. Narrow down by CAT, LOC, Rack or status.</span>`);
   }

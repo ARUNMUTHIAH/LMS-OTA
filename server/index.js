@@ -70,7 +70,7 @@ async function main() {
     dateStrings: true, // DATE -> 'YYYY-MM-DD', DATETIME -> 'YYYY-MM-DD HH:MM:SS'
     charset: 'utf8mb4',
   });
-  const api = createApi(pool, { sessionHours: Number(process.env.SESSION_HOURS) || 12 });
+  const api = createApi(pool, { sessionHours: Number(process.env.SESSION_HOURS) || 1 });
   await api.init();
 
   const server = http.createServer(async (req, res) => {

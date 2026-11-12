@@ -42,6 +42,7 @@ const labelFiles = [
   'renderer/circulation.js',
   'renderer/reports.js',
   'renderer/rules.js',
+  'server/audit.js',
   'src/reports.js',
   'src/importer.js',
   'test/smoke.js',
@@ -56,21 +57,29 @@ edit('src/importer.js', (s) => {
   return mustReplace(s, "'descriptions', 'title', 'bookname'", "'descriptions', 'bookname'");
 });
 
+// Shown name: "2CQR GARUDA" everywhere, as in version 1. Only the short tag differs (backup
+// file names). NEW_NAME above stays internal: it names version 2's data folder in main.js.
+edit('main.js', (s) => mustReplace(s, "const EDITION_TAG = 'Manuals';", "const EDITION_TAG = 'Books';"));
+
 // ---------- Package / installer identity ----------
+// Windows needs the two apps to differ: "2CQR GARUDA (2)" in Apps, shortcuts and the installer.
+const PRODUCT = '2CQR GARUDA (2)';
+const ARTIFACT = '2CQR-GARUDA-Books Setup ${version}.exe';
 edit('package.json', (s) => {
   const pkg = JSON.parse(s);
   pkg.name = 'general-library';
   pkg.version = VERSION;
-  pkg.productName = NEW_NAME;
-  pkg.description = `${NEW_NAME} — 2CQR Garuda LMS`;
+  pkg.productName = PRODUCT;
+  pkg.description = '2CQR GARUDA — CGAS Chennai (Books)';
   pkg.build.appId = 'com.otacampus.generallibrary';
-  pkg.build.productName = NEW_NAME;
+  pkg.build.productName = PRODUCT;
   pkg.build.executableName = 'CGAS-General';
   pkg.build.directories.output = OUT;
-  pkg.build.nsis.shortcutName = NEW_NAME;
+  pkg.build.nsis.shortcutName = PRODUCT;
+  pkg.build.nsis.artifactName = ARTIFACT;
   return JSON.stringify(pkg, null, 2) + '\n';
 });
 
 // ---------- Check, protect, then build ----------
 checkProtectBuild(STAGE);
-console.log(`\nDone: ${OUT}\\${NEW_NAME} Setup ${VERSION}.exe`);
+console.log(`\nDone: ${OUT}\\${ARTIFACT.replace('${version}', VERSION)}`);

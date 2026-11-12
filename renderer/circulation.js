@@ -156,16 +156,18 @@ function renderRecords(kind) {
   const { pages, start, slice } = pageSlice(st.rows, st);
   const dash = '<span class="muted">—</span>';
   const head = issue
-    ? '<th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Remarks</th>'
-    : '<th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Returned By</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th>';
+    ? '<th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Issue Date</th><th>Due Date</th><th>Status</th><th>Remarks</th><th>Issue Login</th>'
+    : '<th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Issued To</th><th>Returned By</th><th>Issue Date</th><th>Due Date</th><th>Return Date</th><th>Status</th><th>Return Login</th>';
   const row = (r, i) =>
     issue
       ? `<tr><td class="idx muted">${start + i + 1}</td><td class="mono">${esc(r.book_no)}</td><td class="strong wrap">${esc(r.book_name)}</td>
           <td>${esc(r.issue_user)}</td><td class="date">${esc(fmtDate(r.issue_date))}</td><td class="date">${esc(fmtDate(r.due_date))}</td>
-          <td>${badge(r.status)}</td><td class="wrap">${esc(r.issue_remarks) || dash}</td></tr>`
+          <td>${badge(r.status)}</td><td class="wrap">${esc(r.issue_remarks) || dash}</td>
+          <td>${esc(r.issued_by) || dash}</td></tr>`
       : `<tr><td class="idx muted">${start + i + 1}</td><td class="mono">${esc(r.book_no)}</td><td class="strong wrap">${esc(r.book_name)}</td>
           <td>${esc(r.issue_user)}</td><td>${esc(r.return_user)}</td><td class="date">${esc(fmtDate(r.issue_date))}</td>
-          <td class="date">${esc(fmtDate(r.due_date))}</td><td class="date">${esc(fmtDate(r.return_date))}</td><td>${badge(r.status)}</td></tr>`;
+          <td class="date">${esc(fmtDate(r.due_date))}</td><td class="date">${esc(fmtDate(r.return_date))}</td><td>${badge(r.status)}</td>
+          <td>${esc(r.returned_by) || dash}</td></tr>`;
   const none = st.q
     ? 'No books match your search.'
     : issue

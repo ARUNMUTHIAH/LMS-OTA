@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'" />
   <meta name="referrer" content="no-referrer" />
-  <title>Technical Library - CGAS Chennai</title>
+  <title>2CQR GARUDA</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -28,6 +28,7 @@
       <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 11h2"/></symbol>
       <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
       <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
       <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
       <symbol id="i-barcode" viewBox="0 0 24 24"><path d="M3 5v14"/><path d="M7 5v14"/><path d="M10 5v14"/><path d="M14 5v14"/><path d="M17 5v14"/><path d="M21 5v14"/></symbol>
@@ -48,7 +49,7 @@
     <div class="login-panel">
       <div class="login-brand">
         <img src="assets/icon.png" alt="" />
-        <div><strong>Technical Library - CGAS Chennai</strong><span>2CQR Garuda LMS</span></div>
+        <div><strong>2CQR GARUDA</strong><span>CGAS Chennai</span></div>
       </div>
       <form method="post" id="license-form" class="login-card" autocomplete="off" novalidate>
         <h2 id="license-title">Register License</h2>
@@ -66,7 +67,7 @@
         </div>
       </form>
       <div class="login-foot"><svg><use href="#i-lock"/></svg>A valid license is required to use this software</div>
-      <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>2CQR Garuda LMS &copy; 2026 2CQR</a></div>
+      <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>2CQR GARUDA &copy; 2026 2CQR</a></div>
     </div>
   </section>
 
@@ -75,8 +76,8 @@
     <button type="button" class="icon-btn login-settings" id="login-settings-btn" title="Settings" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
     <div class="login-panel">
       <div class="login-brand">
-        <img src="assets/icon.png" alt="" />
-        <div><strong>Technical Library - CGAS Chennai</strong><span>2CQR Garuda LMS</span></div>
+        <img src="assets/icon.png" alt="" id="login-logo" />
+        <div><strong>2CQR GARUDA</strong><span>CGAS Chennai</span></div>
       </div>
       <form method="post" id="login-form" class="login-card" autocomplete="off" novalidate>
         <h2>Sign in</h2>
@@ -111,7 +112,7 @@
       </form>
       <div class="login-foot"><svg><use href="#i-lock"/></svg>Data is kept on the library server</div>
       <div id="db-fix" class="login-foot" hidden><a href="#" id="db-fix-link">Change database connection</a></div>
-      <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>2CQR Garuda LMS &copy; 2026 2CQR</a></div>
+      <div class="login-copy"><a href="https://2cqr.in/" class="copyright" data-website>2CQR GARUDA &copy; 2026 2CQR</a></div>
     </div>
   </section>
 
@@ -119,8 +120,8 @@
   <div id="app" class="app" hidden>
     <aside class="sidebar">
       <div class="brand">
-        <img src="assets/icon.png" alt="" />
-        <div><strong>Technical Library - CGAS Chennai</strong><span>2CQR Garuda LMS</span></div>
+        <img src="assets/icon.png" alt="" id="side-logo" />
+        <div><strong>2CQR GARUDA</strong><span>CGAS Chennai</span></div>
       </div>
       <nav class="nav">
         <a href="#" data-page="dashboard" class="nav-item" title="Dashboard"><svg><use href="#i-grid"/></svg><span>Dashboard</span></a>
@@ -130,6 +131,7 @@
         <a href="#" data-page="return" class="nav-item" title="Return Book"><svg><use href="#i-in"/></svg><span>Return Book</span></a>
         <div class="nav-label">Administration</div>
         <a href="#" data-page="reports" class="nav-item" title="Reports"><svg><use href="#i-chart"/></svg><span>Reports</span></a>
+        <a href="#" data-page="audit" class="nav-item" title="Audit Log"><svg><use href="#i-shield"/></svg><span>Audit Log</span></a>
         <a href="#" data-page="settings" class="nav-item" title="Settings"><svg><use href="#i-gear"/></svg><span>Settings</span></a>
       </nav>
       <div class="sidebar-foot">
@@ -145,6 +147,7 @@
           <p id="page-sub" class="muted"></p>
         </div>
         <div class="topbar-right">
+          <button type="button" class="btn btn-ghost settings-exit" id="settings-exit-btn" title="Close Settings and go back to the sign-in page"><svg><use href="#i-logout"/></svg>Back to sign-in</button>
           <div class="today-chip"><svg><use href="#i-calendar"/></svg><span id="today-label"></span></div>
         </div>
       </header>
@@ -203,7 +206,7 @@
         <div class="toolbar">
           <div class="search">
             <svg><use href="#i-search"/></svg>
-            <input id="book-search" type="search" maxlength="100" placeholder="Search by barcode no, description, LF, CAT or location…" />
+            <input id="book-search" type="search" maxlength="100" placeholder="Search by barcode no, description, LF, CAT, location or login…" />
           </div>
           <select id="book-filter-status" class="select">
             <option value="">All statuses</option>
@@ -301,11 +304,9 @@
             <label class="field inline"><span>Status</span>
               <select id="rf-cstatus" class="select">
                 <option value="">All</option>
-                <option value="Out">Not returned yet</option>
-                <option value="Issued">Issued (on time)</option>
+                <option value="Issued">Issued</option>
                 <option value="Overdue">Overdue</option>
-                <option value="AllReturned">All returned</option>
-                <option value="Returned">Returned on time</option>
+                <option value="Returned">Returned</option>
                 <option value="Returned Late">Returned late</option>
               </select></label>
             <label class="field inline"><span>Name</span><input type="text" id="rf-user" maxlength="100" placeholder="Any user" /></label>
@@ -326,7 +327,7 @@
         </div>
         <div class="card flush">
           <div class="report-head">
-            <div><div class="org-eyebrow">Technical Library - CGAS Chennai</div><h3 id="rep-title">Report</h3><span class="muted" id="rep-filter-text"></span></div>
+            <div><div class="org-eyebrow">2CQR GARUDA</div><h3 id="rep-title">Report</h3><span class="muted" id="rep-filter-text"></span></div>
             <span class="pill pill-indigo" id="rep-summary"></span>
           </div>
           <div class="table-tools">
@@ -334,6 +335,38 @@
           </div>
           <div id="report-table" class="table-wrap"></div>
           <div class="pager" id="report-pager"></div>
+        </div>
+      </section>
+
+      <!-- AUDIT LOG (read only) -->
+      <section class="page" id="page-audit" hidden>
+        <div class="alert alert-info audit-note"><svg><use href="#i-lock"/></svg>
+          <div><strong>Read-only record of everything done in the software.</strong>
+          Each entry shows who did it, when, from which computer and what changed. Entries are kept for one year and then removed
+          automatically. Nobody, including the admin, can edit or delete them.</div>
+        </div>
+        <div class="card report-filters">
+          <label class="field inline"><span>From</span><input type="date" id="af-from" /></label>
+          <label class="field inline"><span>To</span><input type="date" id="af-to" /></label>
+          <div class="field inline"><span>Login</span><div class="ms" id="af-user" data-placeholder="All logins"></div></div>
+          <div class="field inline"><span>Section</span><div class="ms" id="af-category" data-placeholder="All sections"></div></div>
+          <div class="field inline"><span>Result</span><div class="ms" id="af-result" data-placeholder="All results"></div></div>
+          <div class="spacer"></div>
+          <div class="report-actions">
+            <button class="btn btn-ghost" id="audit-reset" title="Last 30 days, no filters"><svg><use href="#i-x"/></svg>Reset</button>
+            <button class="btn btn-ghost" id="audit-excel" disabled title="No entries to export"><svg><use href="#i-sheet"/></svg>Excel</button>
+          </div>
+        </div>
+        <div class="card flush">
+          <div class="report-head">
+            <div><div class="org-eyebrow">2CQR GARUDA</div><h3>Audit Log</h3><span class="muted" id="audit-caption"></span></div>
+            <span class="pill pill-indigo" id="audit-summary"></span>
+          </div>
+          <div class="table-tools">
+            <div class="search"><svg><use href="#i-search"/></svg><input id="audit-search" type="search" maxlength="100" placeholder="Search login, computer, action, barcode no, user name or details…" /></div>
+          </div>
+          <div id="audit-table" class="table-wrap"></div>
+          <div class="pager" id="audit-pager"></div>
         </div>
       </section>
 
@@ -386,6 +419,19 @@
             </div>
           </div>
 
+          <div class="card settings-card" id="logo-card">
+            <div class="card-head"><h3><svg><use href="#i-edit"/></svg>Logo</h3></div>
+            <p class="muted">Your library's own logo, shown on the sign-in page and at the top of the sidebar on every PC using this library. The app icon stays the 2CQR GARUDA eagle.</p>
+            <div class="logo-preview">
+              <img id="logo-preview" src="assets/icon.png" alt="" />
+              <div><strong id="logo-state">No logo uploaded</strong><span class="muted">PNG or JPG. A square picture works best; it is shrunk to 512&nbsp;px.</span></div>
+            </div>
+            <div class="card-foot">
+              <button class="btn btn-ghost danger left" type="button" id="logo-reset" hidden>Remove logo</button>
+              <button class="btn btn-primary" type="button" id="logo-upload"><svg><use href="#i-plus"/></svg>Upload logo…</button>
+            </div>
+          </div>
+
           <form method="post" class="card settings-card" id="autobackup-form" novalidate>
             <div class="card-head"><h3><svg><use href="#i-db"/></svg>Automatic backup</h3><span class="pill pill-indigo">Rotational backup</span></div>
             <p class="muted">Rotational backup: one copy of all library data is saved each day — when the app starts and again when it is closed. Only the latest copies are kept (10 days by default); when a new day's copy is made, the oldest one is deleted automatically.</p>
@@ -424,8 +470,8 @@
 
           <div class="card flush users-card">
             <div class="users-head">
-              <div><h3><svg><use href="#i-user"/></svg>Users <span class="pill" id="users-count">0</span></h3>
-                <p class="muted">Active users can sign in to the library system. Inactive users cannot.</p></div>
+              <div class="users-title"><h3><svg><use href="#i-user"/></svg>Users <span class="pill" id="users-count">0</span><span class="users-summary" id="users-summary"></span></h3>
+                <p class="muted">Who can sign in, and which screens each person can open. Inactive users cannot sign in.</p></div>
               <div class="users-actions">
                 <div class="search search-sm"><svg><use href="#i-search"/></svg><input id="users-search" type="search" maxlength="30" placeholder="Search users…" /></div>
                 <button class="btn btn-ghost danger" id="delete-users-btn" type="button" disabled><svg><use href="#i-trash"/></svg><span>Delete Selected</span></button>
@@ -436,7 +482,7 @@
           </div>
         </div>
       </section>
-      <footer class="app-footer"><a href="https://2cqr.in/" class="copyright" data-website>2CQR Garuda LMS &copy; 2026 2CQR</a></footer>
+      <footer class="app-footer"><a href="https://2cqr.in/" class="copyright" data-website>2CQR GARUDA &copy; 2026 2CQR</a></footer>
     </main>
   </div>
 
@@ -453,6 +499,7 @@
   <script src="books.js"></script>
   <script src="circulation.js"></script>
   <script src="reports.js"></script>
+  <script src="audit.js"></script>
   <script src="settings.js"></script>
   <script src="license.js"></script>
   <script src="start.js"></script>

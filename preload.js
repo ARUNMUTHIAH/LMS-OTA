@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: call('settings:get'),
   setDefaultDuration: call('settings:setDuration'),
   setReturnPolicy: call('settings:setReturnPolicy'),
+  brandLogo: call('brand:logo'),
+  chooseLogo: call('brand:choose'),
+  resetLogo: call('brand:reset'),
 
   dashboard: call('dashboard:stats'),
   overdueNow: call('dashboard:overdue'),
@@ -49,6 +52,9 @@ contextBridge.exposeInMainWorld('api', {
   borrowers: call('circ:borrowers'),
   borrowerDetails: call('circ:borrowerDetails'),
   circList: call('circ:list'),
+
+  auditLog: call('audit:list'),
+  exportAuditExcel: call('audit:excel'),
 
   report: call('reports:get'),
   exportExcel: call('reports:excel'),

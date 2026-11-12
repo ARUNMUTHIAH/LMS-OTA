@@ -1,0 +1,16 @@
+IN USE: option 3 (bald eagle head in a navy / gold shield) is the 2CQR GARUDA logo and app icon:
+renderer/assets/icon.png (1024 px, made from the full-size photo) and build/icon.ico (16-256 px).
+
+Photo logo options (photo-1.png ... photo-4.png): sources of the eagle photos.
+All are public domain on Wikimedia Commons (no attribution required; recorded here for reference).
+The SVG options (1-shield.svg ... 4-monogram.svg) are original drawings.
+
+photo-1.png  Bald eagle head        File:USFWS bald eagle (23770875811).jpg      U.S. Fish and Wildlife Service, public domain
+photo-2.png  Tawny eagle            File:Tawny eagle in closeup arp.jpg          public domain
+photo-3.png  Bald eagle head        File:Bald eagle (53625560324).jpg            public domain
+photo-4.png  Bald eagle in flight   File:Bald Eagle (30319996332).jpg            public domain
+
+https://commons.wikimedia.org/wiki/File:USFWS_bald_eagle_(23770875811).jpg
+https://commons.wikimedia.org/wiki/File:Tawny_eagle_in_closeup_arp.jpg
+https://commons.wikimedia.org/wiki/File:Bald_eagle_(53625560324).jpg
+https://commons.wikimedia.org/wiki/File:Bald_Eagle_(30319996332).jpg

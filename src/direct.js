@@ -2,6 +2,7 @@
 // Same interface as RemoteDB (src/remote.js): call(method, ...args) and a session token, so
 // main.js works the same either way. The business rules are server/library-db.js.
 
+const os = require('os');
 const mysql = require('mysql2/promise');
 const { createApi, AuthRequired, UserError: ApiUserError } = require('../server/api');
 const { UserError } = require('./database');
@@ -68,7 +69,7 @@ class DirectDB {
   async call(method, ...args) {
     try {
       const api = await this._api();
-      return await api.call({ edition: this.edition, method, args, token: this.token || '', ip: 'app' });
+      return await api.call({ edition: this.edition, method, args, token: this.token || '', ip: os.hostname() });
     } catch (e) {
       if (e instanceof AuthRequired) {
         this.token = null;

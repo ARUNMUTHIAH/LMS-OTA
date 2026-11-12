@@ -133,7 +133,7 @@
     { key: 'issue', label: 'Issue Book', desc: 'Issue books to borrowers' },
     { key: 'return', label: 'Return Book', desc: 'Receive books back' },
     { key: 'reports', label: 'Reports', desc: 'View and export reports' },
-    { key: 'settings', label: 'Settings', desc: 'Users, loan rules, backup and restore' },
+    { key: 'settings', label: 'Settings', desc: 'Users, loan rules, backup and restore, audit log' },
   ];
   const ALL = PERMISSIONS.map((p) => p.key);
   const PRESETS = [
@@ -149,9 +149,11 @@
     if (set.has('books_edit') || set.has('books_delete')) set.add('books');
     return ALL.filter((k) => set.has(k));
   }
-  // The permissions of a users row ({ role, permissions }).
+  // The permissions of a user: an account as the server sends it ({ perms: [...] }) or a users
+  // table row ({ role, permissions }).
   function permsOf(user) {
     if (!user) return [];
+    if (Array.isArray(user.perms)) return normalizePerms(user.perms);
     if (user.permissions != null && user.permissions !== '') return normalizePerms(user.permissions);
     return user.role === 'viewer' ? [...VIEW_ONLY] : [...ALL];
   }

@@ -1,8 +1,8 @@
 {
   "name": "ota-campus-library",
-  "productName": "Technical Library - CGAS Chennai",
+  "productName": "2CQR GARUDA",
   "version": "1.0.0",
-  "description": "Technical Library - CGAS Chennai — 2CQR Garuda LMS",
+  "description": "2CQR GARUDA — CGAS Chennai",
   "main": "main.js",
   "author": "2CQR",
   "license": "UNLICENSED",
@@ -12,11 +12,12 @@
     "test": "node test/smoke.js",
     "dist": "node scripts/build-technical.js",
     "dist:general": "node scripts/build-general.js",
+    "dist:all": "node scripts/build-all.js",
     "lint": "eslint ."
   },
   "build": {
     "appId": "com.otacampus.library",
-    "productName": "Technical Library - CGAS Chennai",
+    "productName": "2CQR GARUDA",
     "executableName": "CGAS",
     "copyright": "© 2026 2CQR",
     "directories": {
@@ -31,6 +32,7 @@
       "package.json",
       "server/api.js",
       "server/library-db.js",
+      "server/audit.js",
       "db-config.json"
     ],
     "win": {
@@ -50,8 +52,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
-      "shortcutName": "Technical Library - CGAS Chennai",
-      "artifactName": "${productName} Setup ${version}.exe"
+      "shortcutName": "2CQR GARUDA",
+      "artifactName": "2CQR-GARUDA-Manuals Setup ${version}.exe"
     },
     "asar": true,
     "electronFuses": {

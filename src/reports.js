@@ -4,16 +4,16 @@
 const ExcelJS = require('exceljs');
 
 // Client organisation shown at the top of every report.
-const ORG_NAME = 'Technical Library - CGAS Chennai';
+const ORG_NAME = '2CQR GARUDA';
 const { display, today } = require('./dates');
 
 const DATE_BY_LABELS = { issue: 'Issue date', return: 'Return date', due: 'Due date' };
 const STATUS_LABELS = {
   '': 'All',
   Out: 'Not returned yet',
-  Issued: 'Issued (on time)',
+  Issued: 'Issued',
   Overdue: 'Overdue',
-  Returned: 'Returned on time',
+  Returned: 'Returned',
   'Returned Late': 'Returned late',
   AllReturned: 'All returned',
 };
@@ -46,6 +46,8 @@ const REPORTS = {
       { key: 'location', label: 'LOC', width: 8 },
       { key: 'rack', label: 'Rack', width: 8 },
       { key: 'status', label: 'Status', width: 12 },
+      { key: 'created_by', label: 'Entry Login', width: 14 },
+      { key: 'updated_by', label: 'Edit Login', width: 14 },
     ],
     async build(db, f) {
       const rows = await db.searchBooks({ category: f.category, status: f.status, location: f.location, rack: f.rack });
@@ -73,10 +75,12 @@ const REPORTS = {
       { key: 'issue_dept', label: 'Dept', width: 12 },
       { key: 'issue_date', label: 'Issue Date', width: 12, date: true },
       { key: 'issue_time', label: 'Issue Time', width: 11, time: true },
-      { key: 'due_date', label: 'Due Date', width: 12, date: true },
+      { key: 'due_date', label: 'Overdue Date', width: 12, date: true },
       { key: 'return_date', label: 'Return Date', width: 12, date: true },
       { key: 'return_time', label: 'Return Time', width: 11, time: true },
       { key: 'return_user', label: 'Returned By', width: 18 },
+      { key: 'issued_by', label: 'Issue Login', width: 14 },
+      { key: 'returned_by', label: 'Return Login', width: 14 },
       { key: 'status', label: 'Status', width: 14 },
       { key: 'remarks', label: 'Remarks', width: 36 },
     ],
@@ -110,7 +114,8 @@ const REPORTS = {
       { key: 'issue_dept', label: 'Dept', width: 12 },
       { key: 'issue_date', label: 'Issue Date', width: 12, date: true },
       { key: 'issue_time', label: 'Issue Time', width: 11, time: true },
-      { key: 'due_date', label: 'Due Date', width: 12, date: true },
+      { key: 'due_date', label: 'Overdue Date', width: 12, date: true },
+      { key: 'issued_by', label: 'Issue Login', width: 14 },
       { key: 'days_overdue', label: 'Days Overdue', width: 14, num: true },
     ],
     async build(db, f) {
@@ -282,7 +287,7 @@ async function toHtml(db, type, filters) {
   .st-returned-late { background: #fef3c7; color: #92400e; }
 </style></head><body>
 <div class="head">
-  <div><div class="org">${escapeHtml(ORG_NAME)}</div><div class="brand">2CQR Garuda LMS</div><h1>${escapeHtml(rep.title)}</h1></div>
+  <div><div class="org">${escapeHtml(ORG_NAME)}</div><div class="brand">CGAS Chennai</div><h1>${escapeHtml(rep.title)}</h1></div>
   <div class="meta">${escapeHtml(rep.filterText)}<br>Generated on ${escapeHtml(rep.generatedOn)}</div>
 </div>
 <div class="summary">${escapeHtml(rep.summary)}</div>
@@ -290,4 +295,50 @@ async function toHtml(db, type, filters) {
 </body></html>`;
 }
 
-module.exports = { buildReport, toExcel, toHtml, REPORTS, ORG_NAME };
+// The Audit Log page's entries (newest first) as an Excel sheet.
+const AUDIT_COLUMNS = [
+  ['S.No', 7], ['Date', 12], ['Time', 11], ['Login', 16], ['Computer / IP', 18], ['Section', 13],
+  ['Action', 30], ['Record', 22], ['Details', 70], ['Result', 10],
+];
+async function auditToExcel(rows, filterText, filePath) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = ORG_NAME;
+  wb.created = new Date();
+  const ws = wb.addWorksheet('Audit Log', {
+    views: [{ state: 'frozen', ySplit: 4 }],
+    pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+  const n = AUDIT_COLUMNS.length;
+  ws.columns = AUDIT_COLUMNS.map(([, width]) => ({ width }));
+  ws.mergeCells(1, 1, 1, n);
+  ws.getCell(1, 1).value = `${ORG_NAME} — Audit Log`;
+  ws.getCell(1, 1).font = { bold: true, size: 15, color: { argb: 'FF1E3A8A' } };
+  ws.mergeCells(2, 1, 2, n);
+  ws.getCell(2, 1).value = filterText;
+  ws.getCell(2, 1).font = { size: 10, color: { argb: 'FF475569' } };
+  ws.mergeCells(3, 1, 3, n);
+  ws.getCell(3, 1).value = `Generated on ${display(today())}   ·   ${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`;
+  ws.getCell(3, 1).font = { size: 10, color: { argb: 'FF475569' } };
+  const header = ws.getRow(4);
+  AUDIT_COLUMNS.forEach(([label], i) => {
+    const cell = header.getCell(i + 1);
+    cell.value = label;
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
+  });
+  rows.forEach((r, ri) => {
+    const [date, time] = String(r.logged_at || '').split(' ');
+    const values = [ri + 1, display(date), displayTime(time), r.username, r.computer, r.category, r.action, r.record, r.details || '', r.result];
+    const row = ws.getRow(5 + ri);
+    values.forEach((v, i) => {
+      const cell = row.getCell(i + 1);
+      cell.value = v;
+      cell.alignment = { vertical: 'top', wrapText: i === 8 };
+      if (r.result === 'Failed') cell.font = { color: { argb: 'FFB91C1C' } };
+      else if (ri % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+    });
+  });
+  await wb.xlsx.writeFile(filePath);
+}
+
+module.exports = { buildReport, toExcel, toHtml, auditToExcel, REPORTS, ORG_NAME };

@@ -1,5 +1,5 @@
 // Backup files as a MySQL dump (.sql), laid out like a phpMyAdmin export: CREATE TABLE, INSERT INTO,
-// indexes, AUTO_INCREMENT and foreign keys. A backup holds both editions' tables (prefix '' = books, ...,
+// indexes, AUTO_INCREMENT and foreign keys. A backup holds both editions' tables (prefix 'technical_' = technical_books, ...,
 // 'general_' = general_books, ...), so either app's backup is one file of the whole database. It can be
 // imported in phpMyAdmin, or restored by either app, which takes only its own four tables from it.
 
@@ -20,6 +20,8 @@ const COLUMNS = {
     ['lf', `varchar(30) ${C} NOT NULL DEFAULT ''`],
     ['location', `varchar(30) ${C} NOT NULL DEFAULT ''`],
     ['rack', `varchar(30) ${C} NOT NULL DEFAULT ''`],
+    ['created_by', `varchar(100) ${C} DEFAULT NULL`],
+    ['updated_by', `varchar(100) ${C} DEFAULT NULL`],
     ['created_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP'],
     ['updated_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
   ],
@@ -37,17 +39,19 @@ const COLUMNS = {
     ['duration', 'int NOT NULL'],
     ['due_date', 'date NOT NULL'],
     ['issue_remarks', `varchar(250) ${C} NOT NULL DEFAULT ''`],
+    ['issued_by', `varchar(100) ${C} DEFAULT NULL`],
     ['return_date', 'date DEFAULT NULL'],
     ['return_time', 'time DEFAULT NULL'],
     ['return_user', `varchar(100) ${C} DEFAULT NULL`],
     ['return_remarks', `varchar(250) ${C} DEFAULT NULL`],
+    ['returned_by', `varchar(100) ${C} DEFAULT NULL`],
     ['returned_late', "tinyint(1) NOT NULL DEFAULT '0'"],
     ['issued_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP'],
     ['returned_at', 'datetime DEFAULT NULL'],
   ],
   settings: [
     ['key', `varchar(50) ${C} NOT NULL`],
-    ['value', `varchar(255) ${C} NOT NULL`],
+    ['value', `mediumtext ${C} NOT NULL`],
     ['updated_at', 'datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'],
   ],
   users: [
@@ -258,7 +262,18 @@ function tuples(s) {
 }
 
 // Reads this edition's four tables out of a .sql dump: { books, issues, users, settings }.
-function parseSqlDump(text, { prefix = '' } = {}) {
+// oldPrefix: the table prefix older backups used for this edition (Technical tables had none), tried
+// when the file has no tables with `prefix`.
+function parseSqlDump(text, { prefix = '', oldPrefix = null } = {}) {
+  try {
+    return parseTables(text, prefix);
+  } catch (e) {
+    if (oldPrefix === null || oldPrefix === prefix || !(e instanceof UserError) || !/no table/.test(e.message)) throw e;
+    return parseTables(text, oldPrefix);
+  }
+}
+
+function parseTables(text, prefix) {
   const wanted = Object.fromEntries(TABLES.map((name) => [prefix + name, name]));
   const data = {};
   try {

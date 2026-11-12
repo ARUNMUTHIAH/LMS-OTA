@@ -25,8 +25,41 @@ async function loadSettings() {
   renderReturnRule(s);
   $('#data-file').textContent = `${info.dataFile}  ·  Version ${info.version}`;
   renderAutoBackup(await rpc('getAutoBackup'));
-  await Promise.all([loadUsers(), loadDbConn()]);
+  await Promise.all([loadUsers(), loadDbConn(), renderLogoCard()]);
 }
+
+/* ----- Logo: the library's own logo on the sign-in page and in the sidebar ----- */
+async function renderLogoCard(known) {
+  const logo = known !== undefined ? known : await rpc('brandLogo');
+  $('#logo-preview').src = logo || DEFAULT_LOGO;
+  $('#logo-state').textContent = logo ? 'Your logo is in use' : 'No logo uploaded: the 2CQR GARUDA eagle is shown';
+  $('#logo-reset').hidden = !logo;
+}
+
+$('#logo-upload').addEventListener('click', () =>
+  attempt(async () => {
+    const logo = await rpc('chooseLogo');
+    if (logo === undefined || logo === null) return; // no file chosen
+    applyLogo(logo);
+    await renderLogoCard(logo);
+    toast('Logo updated. It now shows on the sign-in page and in the sidebar.');
+  })
+);
+$('#logo-reset').addEventListener('click', async () => {
+  const ok = await confirmDialog({
+    title: 'Remove the logo?',
+    message: 'The sign-in page and sidebar will show the 2CQR GARUDA eagle again, on every PC.',
+    okLabel: 'Remove',
+    danger: true,
+  });
+  if (!ok) return;
+  await attempt(async () => {
+    await rpc('resetLogo');
+    applyLogo(null);
+    await renderLogoCard(null);
+    toast('Logo removed.');
+  });
+});
 
 /* ----- Users ----- */
 async function loadUsers() {
@@ -34,35 +67,48 @@ async function loadUsers() {
   renderUsers();
 }
 
+// The screens an account can open, as short names for the Access column ("Book Entry — view" -> "Book Entry").
+const ACCESS_SHORT = { books: 'Book Entry', books_edit: 'Edit books', books_delete: 'Delete books' };
+function accessCell(u) {
+  const perms = ACCESS.permsOf(u);
+  const name = ACCESS.accessLabel(perms);
+  const labels = ACCESS.PERMISSIONS.filter((p) => perms.includes(p.key)).map((p) => ACCESS_SHORT[p.key] || p.label);
+  const cls = name === 'Full access' ? 'pill-indigo' : name === 'Custom' ? 'pill-amber' : '';
+  return `<div class="access-cell"><span class="pill ${cls}">${esc(name)}</span>
+    <span class="access-list" title="${esc(labels.join(', '))}">${perms.length === ACCESS.ALL.length ? 'Every screen' : esc(labels.join(' · '))}</span></div>`;
+}
+
 function renderUsers() {
-  const users = state.users;
+  const users = state.users || [];
+  const keep = new Set(selectedUserIds()); // ticks survive searching
   const q = ($('#users-search').value || '').trim().toLowerCase();
   const shown = q ? users.filter((u) => u.username.toLowerCase().includes(q)) : users;
+  const active = users.filter((u) => u.active).length;
   $('#users-count').textContent = users.length;
+  $('#users-summary').textContent = users.length ? `${active} active · ${users.length - active} inactive` : '';
   const others = shown.filter((u) => !u.me).length;
   setHtml($('#users-table'), shown.length
     ? `<table class="table users-table"><thead><tr>
-      <th class="check"><input type="checkbox" id="users-all" title="Select all" /></th>
-      <th class="idx">S.No</th><th>Username</th><th>Access</th><th>Status</th><th class="actions">Actions</th></tr></thead><tbody>
+      <th class="check"><input type="checkbox" id="users-all" title="Select all" aria-label="Select all users" /></th>
+      <th class="idx">S.No</th><th>User</th><th>Access</th><th>Status</th><th class="actions">Actions</th></tr></thead><tbody>
     ${shown
       .map(
-        (u, i) => `<tr class="${u.me ? 'me' : ''}">
-        <td class="check"><input type="checkbox" data-user-check="${u.id}" ${u.me ? 'disabled title="You cannot delete your own account"' : ''} /></td>
+        (u, i) => `<tr class="${u.me ? 'me' : ''} ${u.active ? '' : 'inactive'}">
+        <td class="check"><input type="checkbox" data-user-check="${u.id}" aria-label="Select ${esc(u.username)}" ${u.me ? 'disabled title="You cannot delete your own account"' : keep.has(u.id) ? 'checked' : ''} /></td>
         <td class="idx muted">${i + 1}</td>
-        <td><div class="user-cell"><div class="avatar-sm ${u.active ? '' : 'off'}">${esc(u.username.charAt(0).toUpperCase())}</div><strong>${esc(u.username)}</strong>${u.me ? '<span class="you-tag">You</span>' : ''}</div></td>
-        <td>${(() => {
-          const name = ACCESS.accessLabel(ACCESS.permsOf(u));
-          const list = ACCESS.PERMISSIONS.filter((p) => ACCESS.permsOf(u).includes(p.key)).map((p) => p.label).join(', ');
-          return `<span class="pill ${name === 'Full access' ? 'pill-indigo' : ''}" title="${esc(list)}">${esc(name)}</span>`;
-        })()}</td>
+        <td><div class="user-cell"><div class="avatar-sm ${u.active ? '' : 'off'}">${esc(u.username.charAt(0).toUpperCase())}</div>
+          <div class="user-name"><strong>${esc(u.username)}</strong>${u.me ? '<span class="you-tag">You</span>' : ''}</div></div></td>
+        <td>${accessCell(u)}</td>
         <td>${u.active ? '<span class="badge badge-active"><i></i>Active</span>' : '<span class="badge badge-inactive"><i></i>Inactive</span>'}</td>
         <td class="actions">
-          <button class="icon-btn" data-user-edit="${u.id}" title="Edit">${icon('edit')}</button>
-          <button class="icon-btn danger" data-user-del="${u.id}" ${u.me ? 'disabled title="You cannot delete your own account"' : 'title="Delete"'}>${icon('trash')}</button>
+          <button class="icon-btn" data-user-edit="${u.id}" title="Edit ${esc(u.username)}">${icon('edit')}</button>
+          <button class="icon-btn danger" data-user-del="${u.id}" ${u.me ? 'disabled title="You cannot delete your own account"' : `title="Delete ${esc(u.username)}"`}>${icon('trash')}</button>
         </td></tr>`
       )
       .join('')}</tbody></table>`
-    : emptyState('search', 'No users match your search.'));
+    : users.length
+      ? emptyState('search', `No users match “${q}”.`)
+      : emptyState('user', 'No users yet. Click New User to add one.'));
   if ($('#users-all')) $('#users-all').disabled = !others;
   updateUserSelection();
 }
@@ -100,29 +146,37 @@ function openUserForm(user = null) {
   const isEdit = !!user;
   const perms = isEdit ? ACCESS.permsOf(user) : ACCESS.PRESETS[0].perms;
   const lockSettings = isEdit && user.me;
+  const meNote = isEdit && user.me;
   const m = openModal({
-    title: isEdit ? `Edit User “${user.username}”` : 'Add User',
+    title: isEdit ? `Edit User “${user.username}”` : 'New User',
     iconName: isEdit ? 'edit' : 'plus',
-    size: 'small',
+    size: 'user-modal',
     body: `<form method="post" id="user-form" autocomplete="off" novalidate>
-      <label class="field"><span>Username <em>*</em></span><input name="username" maxlength="30" spellcheck="false" value="${esc(isEdit ? user.username : '')}" />
-        <span class="hint">3–30 characters: letters, numbers, . _ - (no spaces).</span></label>
-      <label class="field"><span>Password${isEdit ? '' : ' <em>*</em>'}</span><input name="password" type="password" maxlength="64" ${isEdit ? 'placeholder="Leave blank to keep the current password"' : ''} />
-        <span class="hint">At least 4 characters.</span></label>
-      <div class="field"><span>Access <b class="access-name" data-access-name></b></span>
-        <div class="access-presets">${ACCESS.PRESETS.map((p) => `<button type="button" class="btn btn-soft btn-sm" data-preset="${p.key}">${esc(p.label)}</button>`).join('')}</div>
+      <div class="user-form-section">
+        <div class="user-form-title">Sign-in details</div>
+        <div class="user-form-row">
+          <label class="field"><span>Username <em>*</em></span><input name="username" maxlength="30" spellcheck="false" value="${esc(isEdit ? user.username : '')}" />
+            <span class="hint">3–30 characters: letters, numbers, . _ - (no spaces).</span></label>
+          <label class="field"><span>${isEdit ? 'New password' : 'Password <em>*</em>'}</span><input name="password" type="password" maxlength="64" ${isEdit ? 'placeholder="Leave blank to keep current"' : ''} />
+            <span class="hint">At least 4 characters.</span></label>
+        </div>
+        <div class="field user-status"><span>Status</span>
+          <div class="segmented" role="radiogroup" aria-label="Status">
+            <label class="seg seg-active"><input type="radio" name="active" value="1" ${!isEdit || user.active ? 'checked' : ''} /><span><i></i>Active</span></label>
+            <label class="seg seg-inactive"><input type="radio" name="active" value="0" ${isEdit && !user.active ? 'checked' : ''} ${meNote ? 'disabled' : ''} /><span><i></i>Inactive</span></label>
+          </div>
+          <span class="hint">${meNote ? 'You cannot make your own account inactive.' : 'Inactive users cannot sign in. Their records are kept.'}</span>
+        </div>
+      </div>
+      <div class="user-form-section">
+        <div class="user-form-title"><span>Access <b class="access-name" data-access-name></b></span>
+          <div class="access-presets" role="group" aria-label="Ready-made access">${ACCESS.PRESETS.map((p) => `<button type="button" class="btn btn-soft btn-sm" data-preset="${p.key}">${esc(p.label)}</button>`).join('')}</div>
+        </div>
         <div class="perm-list">${ACCESS.PERMISSIONS.map(
           (p) => `<label class="perm"><input type="checkbox" name="perm" value="${p.key}" ${perms.includes(p.key) ? 'checked' : ''}
             ${lockSettings && p.key === 'settings' ? 'disabled' : ''} /><span><strong>${esc(p.label)}</strong><small>${esc(p.desc)}</small></span></label>`
         ).join('')}</div>
-        <span class="hint">${lockSettings ? 'Your own account keeps Settings access, so you cannot lock yourself out.' : 'Tick the screens this user can open. Unticked screens are hidden for them.'}</span>
-      </div>
-      <div class="field"><span>Status</span>
-        <div class="segmented" role="radiogroup" aria-label="Status">
-          <label class="seg seg-active"><input type="radio" name="active" value="1" ${!isEdit || user.active ? 'checked' : ''} /><span><i></i>Active</span></label>
-          <label class="seg seg-inactive"><input type="radio" name="active" value="0" ${isEdit && !user.active ? 'checked' : ''} ${isEdit && user.me ? 'disabled' : ''} /><span><i></i>Inactive</span></label>
-        </div>
-        <span class="hint">${isEdit && user.me ? 'You cannot make your own account inactive.' : 'Inactive users cannot sign in. Their records are kept.'}</span>
+        <p class="hint perm-hint">${lockSettings ? 'Your own account keeps Settings access, so you cannot lock yourself out.' : 'Tick the screens this user can open. Unticked screens are hidden for them.'}</p>
       </div>
       <div class="form-error" hidden></div>
       <button type="submit" hidden></button>
@@ -131,6 +185,7 @@ function openUserForm(user = null) {
   });
   const form = $('#user-form', m.el);
   const errBox = $('.form-error', form);
+  const saveBtn = $('[data-save]', m.el);
   enhancePasswords(form);
   if (!isEdit) enterMovesTo(form.username, form.password); // password is optional when editing
   setTimeout(() => form.username.focus(), 30);
@@ -157,6 +212,7 @@ function openUserForm(user = null) {
   syncAccess();
 
   async function save() {
+    if (saveBtn.disabled) return; // already saving: a double click must not create the user twice
     errBox.hidden = true;
     const password = form.password.value;
     const valid = validateFields([
@@ -171,8 +227,18 @@ function openUserForm(user = null) {
       return;
     }
     const payload = { username: form.username.value.trim(), password, active: form.active.value === '1', perms: access };
+    saveBtn.disabled = true;
+    const label = saveBtn.textContent;
+    saveBtn.textContent = 'Saving…';
     const res = isEdit ? await window.api.updateUser(user.id, payload) : await window.api.createUser(payload);
+    saveBtn.disabled = false;
+    saveBtn.textContent = label;
     if (!res.ok) {
+      if (res.auth || res.license) {
+        m.close();
+        showLogin();
+        return;
+      }
       if (/username/i.test(res.error)) showFieldError(form.username, res.error);
       else {
         errBox.textContent = res.error;
@@ -180,16 +246,20 @@ function openUserForm(user = null) {
       }
       return;
     }
-    if (isEdit && user.me) syncSignedInName(res.data.username);
+    if (isEdit && user.me) {
+      syncSignedInName(res.data.username);
+      state.user.perms = res.data.perms;
+      applyAccess();
+    }
     toast(isEdit ? `User “${res.data.username}” updated.` : `User “${res.data.username}” created.`);
     m.close();
-    attempt(loadSettings);
+    attempt(loadUsers); // only the list: other Settings cards keep anything typed but not yet saved
   }
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     save();
   });
-  $('[data-save]', m.el).addEventListener('click', save);
+  saveBtn.addEventListener('click', save);
 }
 
 $('#add-user-btn').addEventListener('click', () => openUserForm());

@@ -1,6 +1,6 @@
 // Library database on MySQL: the same business rules as src/database.js (the app's local SQLite
 // version), with async queries. One instance per edition; `prefix` picks the tables:
-//   Technical Library (version 1): books, issues, users, settings
+//   Technical Library (version 1): technical_books, technical_issues, technical_users, technical_settings
 //   General Library   (version 2): general_books, general_issues, general_users, general_settings
 // DATE / DATETIME columns are read as strings ('YYYY-MM-DD', 'YYYY-MM-DD HH:MM:SS'), as the app expects.
 
@@ -10,6 +10,37 @@ const { checks, access } = require('../renderer/rules');
 
 const DEFAULT_USERNAME = 'admin';
 const TABLES = ['books', 'issues', 'users', 'settings'];
+
+// Audit log: every change made in the software, kept for one year, then removed automatically.
+// Not part of TABLES on purpose: a backup restore never replaces or empties it, and the app has
+// no way to edit or delete an entry (server/api.js only adds and reads). The triggers below make
+// MySQL itself refuse any UPDATE, and any DELETE of an entry younger than one year.
+const AUDIT_KEEP_DAYS = 365;
+const AUDIT_LIST_LIMIT = 5000;
+const auditSchema = (t) => `CREATE TABLE IF NOT EXISTS ${t} (
+      id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      logged_at   DATETIME     NOT NULL,
+      username    VARCHAR(100) NOT NULL DEFAULT '',
+      computer    VARCHAR(100) NOT NULL DEFAULT '',
+      category    VARCHAR(30)  NOT NULL DEFAULT '',
+      action      VARCHAR(60)  NOT NULL DEFAULT '',
+      record      VARCHAR(200) NOT NULL DEFAULT '',
+      details     TEXT         NULL,
+      result      VARCHAR(10)  NOT NULL DEFAULT 'Success',
+      PRIMARY KEY (id),
+      KEY idx_${t}_at (logged_at),
+      KEY idx_${t}_user (username)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`;
+const auditTriggers = (t) => [
+  [`${t}_no_update`, `CREATE TRIGGER ${t}_no_update BEFORE UPDATE ON ${t} FOR EACH ROW
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Audit log entries cannot be changed.'`],
+  [`${t}_no_delete`, `CREATE TRIGGER ${t}_no_delete BEFORE DELETE ON ${t} FOR EACH ROW
+    BEGIN
+      IF OLD.logged_at >= NOW() - INTERVAL 364 DAY THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Audit log entries are kept for one year and cannot be deleted.';
+      END IF;
+    END`],
+];
 
 // Lists that show books are in Barcode No order: by letter prefix A-Z, then by number
 // (BAG-001, CAG-001, CAG-002, CAG-010, DAG-001). Capitals, spaces and dashes are ignored, so
@@ -68,7 +99,7 @@ function now() {
 }
 
 const ISSUE_COLS = `id, book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date, issue_time, duration,
-  due_date, issue_remarks, return_date, return_time, return_user, return_remarks, returned_late, issued_at, returned_at`;
+  due_date, issue_remarks, issued_by, return_date, return_time, return_user, return_remarks, returned_by, returned_late, issued_at, returned_at`;
 // Fills issue_time / return_time from issued_at / returned_at where they are empty (rows from before
 // these columns, older backups, or rows added by hand in phpMyAdmin).
 const fillTimes = (t) => [
@@ -88,6 +119,8 @@ function schema(p) {
       lf          VARCHAR(30)  NOT NULL DEFAULT '',
       location    VARCHAR(30)  NOT NULL DEFAULT '',
       rack        VARCHAR(30)  NOT NULL DEFAULT '',
+      created_by  VARCHAR(100) NULL,
+      updated_by  VARCHAR(100) NULL,
       created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -107,10 +140,12 @@ function schema(p) {
       duration        INT          NOT NULL,
       due_date        DATE         NOT NULL,
       issue_remarks   VARCHAR(250) NOT NULL DEFAULT '',
+      issued_by       VARCHAR(100) NULL,
       return_date     DATE         NULL,
       return_time     TIME         NULL,
       return_user     VARCHAR(100) NULL,
       return_remarks  VARCHAR(250) NULL,
+      returned_by     VARCHAR(100) NULL,
       returned_late   TINYINT(1)   NOT NULL DEFAULT 0,
       issued_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       returned_at     DATETIME     NULL,
@@ -134,7 +169,7 @@ function schema(p) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS ${p}settings (
       \`key\`   VARCHAR(50)  NOT NULL,
-      \`value\` VARCHAR(255) NOT NULL,
+      \`value\` MEDIUMTEXT   NOT NULL,
       updated_at DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (\`key\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -148,6 +183,7 @@ class MySqlLibraryDB {
     this.p = prefix;
     // Table names for this edition, used in every query.
     this.t = Object.fromEntries(TABLES.map((n) => [n, prefix + n]));
+    this.audit = prefix + 'audit_log';
   }
 
   // Creates missing tables and adds columns introduced after the first release.
@@ -155,11 +191,12 @@ class MySqlLibraryDB {
   // tables are only created / altered when something is actually missing.
   async init() {
     const [cols] = await this.pool.query(
-      'SELECT TABLE_NAME AS t, COLUMN_NAME AS c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)',
-      [Object.values(this.t)]
+      'SELECT TABLE_NAME AS t, COLUMN_NAME AS c, DATA_TYPE AS d FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)',
+      [[...Object.values(this.t), this.audit]]
     );
     const tables = new Set(cols.map((r) => r.t));
     const issueCols = cols.filter((r) => r.t === this.t.issues).map((r) => r.c);
+    const bookCols = cols.filter((r) => r.t === this.t.books).map((r) => r.c);
     const userCols = cols.filter((r) => r.t === this.t.users).map((r) => r.c);
     const settingCols = cols.filter((r) => r.t === this.t.settings).map((r) => r.c);
     const created = !tables.has(this.t.settings);
@@ -183,6 +220,16 @@ class MySqlLibraryDB {
         ADD COLUMN return_time TIME NULL AFTER return_date`);
       for (const sql of fillTimes(this.t.issues)) await this.pool.query(sql);
     }
+    // The signed-in account (username) that recorded the issue / the return.
+    if (tables.has(this.t.issues) && !issueCols.includes('issued_by')) {
+      await this.pool.query(`ALTER TABLE ${this.t.issues} ADD COLUMN issued_by VARCHAR(100) NULL AFTER issue_remarks,
+        ADD COLUMN returned_by VARCHAR(100) NULL AFTER return_remarks`);
+    }
+    // The signed-in account (username) that added the book / last edited it.
+    if (tables.has(this.t.books) && !bookCols.includes('created_by')) {
+      await this.pool.query(`ALTER TABLE ${this.t.books} ADD COLUMN created_by VARCHAR(100) NULL AFTER rack,
+        ADD COLUMN updated_by VARCHAR(100) NULL AFTER created_by`);
+    }
     if (tables.has(this.t.users) && !userCols.includes('role')) {
       await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'librarian' AFTER active`);
       userCols.push('role');
@@ -196,11 +243,99 @@ class MySqlLibraryDB {
       await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER permissions,
         ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER created_at`);
     }
+    // Settings values hold the uploaded logo (a data URL) too: wider than the first VARCHAR(255).
+    const valueCol = cols.find((r) => r.t === this.t.settings && r.c === 'value');
+    if (valueCol && String(valueCol.d).toLowerCase() === 'varchar') {
+      await this.pool.query(`ALTER TABLE ${this.t.settings} MODIFY \`value\` MEDIUMTEXT NOT NULL`);
+    }
     if (tables.has(this.t.settings) && !settingCols.includes('updated_at')) {
       await this.pool.query(`ALTER TABLE ${this.t.settings} ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER \`value\``);
     }
     // A missing default_duration reads as 14 days anyway (getSettings), so only a new table needs it.
     if (created) await this.pool.query(`INSERT IGNORE INTO ${this.t.settings} (\`key\`, \`value\`) VALUES ('default_duration', '14')`);
+    if (!tables.has(this.audit)) await this.pool.query(auditSchema(this.audit));
+    await this._auditTriggers();
+  }
+
+  // Database-level protection of the audit log. Creating triggers needs the TRIGGER privilege
+  // (scripts/db-audit-log.sql does it as the admin account); without it the app's own rules
+  // still apply (no edit / delete anywhere in the software).
+  async _auditTriggers() {
+    try {
+      const [have] = await this.pool.query(
+        'SELECT TRIGGER_NAME AS n FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = DATABASE() AND EVENT_OBJECT_TABLE = ?',
+        [this.audit]
+      );
+      const names = new Set(have.map((r) => r.n));
+      for (const [name, sql] of auditTriggers(this.audit)) if (!names.has(name)) await this.pool.query(sql);
+    } catch (e) {
+      if (!this._triggerWarned) console.warn(`Audit log triggers not created on ${this.audit} (${e.code || e.message}). Run scripts/db-audit-log.sql as the MySQL admin.`);
+      this._triggerWarned = true;
+    }
+  }
+
+  // ---------- Audit log (add and read only) ----------
+  async addAudit({ username = '', computer = '', category = '', action = '', record = '', details = '', result = 'Success' } = {}) {
+    const cut = (v, n) => String(v == null ? '' : v).slice(0, n);
+    await this.run(
+      `INSERT INTO ${this.audit} (logged_at, username, computer, category, action, record, details, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [now(), cut(username, 100), cut(computer, 100), cut(category, 30), cut(action, 60), cut(record, 200), cut(details, 4000), result === 'Failed' ? 'Failed' : 'Success']
+    );
+  }
+
+  // Removes entries older than one year, one date at a time, oldest date first: each day the
+  // date that has just passed one year drops off. Returns the dates removed ('YYYY-MM-DD').
+  async purgeAudit() {
+    const d = new Date();
+    d.setDate(d.getDate() - AUDIT_KEEP_DAYS);
+    const keepFrom = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; // first date kept
+    const removed = [];
+    for (let i = 0; i < AUDIT_KEEP_DAYS + 31; i++) {
+      const row = await this.get(`SELECT DATE_FORMAT(MIN(logged_at), '%Y-%m-%d') AS day FROM ${this.audit} WHERE logged_at < ?`, [`${keepFrom} 00:00:00`]);
+      if (!row || !row.day) break;
+      await this.run(`DELETE FROM ${this.audit} WHERE logged_at >= ? AND logged_at < ? AND logged_at < ?`,
+        [`${row.day} 00:00:00`, `${addDays(row.day, 1)} 00:00:00`, `${keepFrom} 00:00:00`]);
+      removed.push(row.day);
+    }
+    return removed;
+  }
+
+  // Newest first. from / to: 'YYYY-MM-DD' (inclusive); at most AUDIT_LIST_LIMIT rows.
+  async auditLog({ from = '', to = '', username = '', category = '', result = '', q = '' } = {}) {
+    const where = [];
+    const params = [];
+    if (isValidDate(from)) {
+      where.push('logged_at >= ?');
+      params.push(`${from} 00:00:00`);
+    }
+    if (isValidDate(to)) {
+      where.push('logged_at <= ?');
+      params.push(`${to} 23:59:59`);
+    }
+    // Login / section / result: one value or a list (any of them); empty = all.
+    const anyOf = (col, v, allowed = null) => {
+      const list = (Array.isArray(v) ? v : [v]).map(clean).filter(Boolean).filter((x) => !allowed || allowed.includes(x)).slice(0, 200);
+      if (!list.length) return;
+      where.push(`${col} IN (${list.map(() => '?').join(', ')})`);
+      params.push(...list);
+    };
+    anyOf('username', username);
+    anyOf('category', category);
+    anyOf('result', result, ['Success', 'Failed']);
+    if (clean(q)) {
+      where.push('(username LIKE ? OR computer LIKE ? OR action LIKE ? OR record LIKE ? OR details LIKE ?)');
+      const p = likeParam(clean(q));
+      params.push(p, p, p, p, p);
+    }
+    const sqlWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const [rows, count, users, oldest] = await Promise.all([
+      this.all(`SELECT id, logged_at, username, computer, category, action, record, details, result FROM ${this.audit} ${sqlWhere}
+                ORDER BY logged_at DESC, id DESC LIMIT ${AUDIT_LIST_LIMIT}`, params),
+      this.get(`SELECT COUNT(*) AS n FROM ${this.audit} ${sqlWhere}`, params),
+      this.all(`SELECT DISTINCT username FROM ${this.audit} WHERE username <> '' ORDER BY username`),
+      this.get(`SELECT MIN(logged_at) AS at FROM ${this.audit}`),
+    ]);
+    return { rows, total: Number(count.n) || 0, limit: AUDIT_LIST_LIMIT, users: users.map((u) => u.username), oldest: oldest.at, keepDays: AUDIT_KEEP_DAYS };
   }
 
   // ---------- Query helpers (cx: a connection inside a transaction, or the pool) ----------
@@ -268,6 +403,24 @@ class MySqlLibraryDB {
     check(checks.duration(days));
     await this._setSetting('default_duration', Number(days));
     return this.getSettings();
+  }
+
+  // ---------- Logo (Settings → Logo): shown on the sign-in page and in the sidebar ----------
+  // Kept as a PNG / JPEG data URL in the settings table, so every PC on this library shows it.
+  async getLogo() {
+    return (await this.getSetting('logo')) || null;
+  }
+
+  async setLogo(dataUrl) {
+    if (dataUrl == null || dataUrl === '') {
+      await this.run(`DELETE FROM ${this.t.settings} WHERE \`key\` = 'logo'`);
+      return null;
+    }
+    const v = String(dataUrl);
+    check(/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+=*$/.test(v) ? null : 'The logo must be a PNG or JPEG image.');
+    check(v.length <= 2 * 1024 * 1024 ? null : 'The logo image is too large. Use a smaller picture.');
+    await this._setSetting('logo', v);
+    return v;
   }
 
   async setAllowOtherReturner(allow) {
@@ -395,8 +548,10 @@ class MySqlLibraryDB {
     const wanted = [...new Set((Array.isArray(ids) ? ids : []).map(Number))];
     if (!wanted.length) throw new UserError('Select at least one user to delete.');
     if (wanted.includes(currentUserId)) throw new UserError('You cannot delete the account you are signed in with.');
-    const users = (await this.listUsers()).filter((u) => wanted.includes(u.id));
+    const all = await this.listUsers();
+    const users = all.filter((u) => wanted.includes(u.id));
     if (!users.length) throw new UserError('The selected users no longer exist.');
+    if (users.length >= all.length) throw new UserError('At least one user account must remain. Leave one account unselected.');
     await this._transaction(async (cx) => {
       for (const u of users) {
         await this.run(`DELETE FROM ${this.t.users} WHERE id = ?`, [u.id], cx);
@@ -408,7 +563,7 @@ class MySqlLibraryDB {
 
   // ---------- Books ----------
   _bookSelect() {
-    return `SELECT b.id, b.book_no, b.name, b.author, b.publisher, b.category, b.lf, b.location, b.rack, b.created_at, b.updated_at,
+    return `SELECT b.id, b.book_no, b.name, b.author, b.publisher, b.category, b.lf, b.location, b.rack, b.created_by, b.updated_by, b.created_at, b.updated_at,
               i.id AS issue_id, i.issue_user, i.issue_rank, i.issue_number, i.issue_dept, i.issue_date, i.due_date, i.duration, i.issue_remarks,
               CASE WHEN i.id IS NULL THEN 'Available' ELSE 'Issued' END AS status
             FROM ${this.t.books} b
@@ -420,9 +575,9 @@ class MySqlLibraryDB {
     const where = [];
     const params = [];
     if (q) {
-      where.push('(b.book_no LIKE ? OR b.name LIKE ? OR b.lf LIKE ? OR b.category LIKE ? OR b.location LIKE ?)');
+      where.push('(b.book_no LIKE ? OR b.name LIKE ? OR b.lf LIKE ? OR b.category LIKE ? OR b.location LIKE ? OR b.created_by LIKE ? OR b.updated_by LIKE ?)');
       const p = likeParam(q);
-      params.push(p, p, p, p, p);
+      params.push(p, p, p, p, p, p, p);
     }
     if (clean(category)) {
       where.push('b.category = ?');
@@ -441,6 +596,10 @@ class MySqlLibraryDB {
     return byBarcode(await this.all(`${this._bookSelect()} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY b.id DESC`, params));
   }
 
+  async getBook(id) {
+    return this.get(`${this._bookSelect()} WHERE b.id = ?`, [Number(id)]);
+  }
+
   async getBookByNumber(bookNo, cx) {
     const n = clean(bookNo);
     if (!n) return null;
@@ -452,7 +611,9 @@ class MySqlLibraryDB {
     return rows.map((r) => r.category);
   }
 
+  // savedBy / importedBy: the signed-in account's username (set by server/api.js from the session, never by the app).
   async saveBook(input = {}) {
+    const by = input.savedBy ? clean(input.savedBy) : null;
     const book = {
       id: input.id ? Number(input.id) : null,
       book_no: clean(input.book_no),
@@ -479,8 +640,8 @@ class MySqlLibraryDB {
         const existing = await this.get(`SELECT id FROM ${this.t.books} WHERE id = ?`, [book.id], cx);
         if (!existing) throw new UserError('This book no longer exists.');
         await this.run(
-          `UPDATE ${this.t.books} SET book_no = ?, name = ?, lf = ?, category = ?, location = ?, rack = ?, updated_at = ? WHERE id = ?`,
-          [book.book_no, book.name, book.lf, book.category, book.location, book.rack, now(), book.id],
+          `UPDATE ${this.t.books} SET book_no = ?, name = ?, lf = ?, category = ?, location = ?, rack = ?, updated_by = ?, updated_at = ? WHERE id = ?`,
+          [book.book_no, book.name, book.lf, book.category, book.location, book.rack, by, now(), book.id],
           cx
         );
         // Keep the open issue's snapshot in step with the edited book.
@@ -493,9 +654,9 @@ class MySqlLibraryDB {
       }
       const stamp = now();
       const res = await this.run(
-        `INSERT INTO ${this.t.books} (book_no, name, author, lf, category, location, rack, created_at, updated_at)
-         VALUES (?, ?, '', ?, ?, ?, ?, ?, ?)`,
-        [book.book_no, book.name, book.lf, book.category, book.location, book.rack, stamp, stamp],
+        `INSERT INTO ${this.t.books} (book_no, name, author, lf, category, location, rack, created_by, updated_by, created_at, updated_at)
+         VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [book.book_no, book.name, book.lf, book.category, book.location, book.rack, by, by, stamp, stamp],
         cx
       );
       return this.get(`${this._bookSelect()} WHERE b.id = ?`, [res.insertId], cx);
@@ -539,7 +700,8 @@ class MySqlLibraryDB {
     return { total: rows.length, ready, errors };
   }
 
-  async importBooks(rows) {
+  async importBooks(rows, importedBy = null) {
+    const by = importedBy ? clean(importedBy) : null;
     const { ready, errors } = await this.validateImport(rows);
     if (!ready.length && !errors.length) throw new UserError('There are no rows to import.');
     if (ready.length) {
@@ -547,9 +709,9 @@ class MySqlLibraryDB {
       await this._transaction(async (cx) => {
         for (const b of ready) {
           await this.run(
-            `INSERT INTO ${this.t.books} (book_no, name, author, lf, category, location, rack, created_at, updated_at)
-             VALUES (?, ?, '', ?, ?, ?, ?, ?, ?)`,
-            [b.book_no, b.name, b.lf, b.category, b.location, b.rack, stamp, stamp],
+            `INSERT INTO ${this.t.books} (book_no, name, author, lf, category, location, rack, created_by, updated_by, created_at, updated_at)
+             VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [b.book_no, b.name, b.lf, b.category, b.location, b.rack, by, by, stamp, stamp],
             cx
           );
         }
@@ -600,7 +762,8 @@ class MySqlLibraryDB {
     return { book, overdueDays, today: t };
   }
 
-  async issueBook({ bookNo, userName, rank = '', number = '', dept = '', duration, remarks } = {}) {
+  // issuedBy / returnedBy: the signed-in account's username (set by server/api.js from the session, never by the app).
+  async issueBook({ bookNo, userName, rank = '', number = '', dept = '', duration, remarks, issuedBy = null } = {}) {
     return this._transaction(async (cx) => {
       // Lock the book row so two librarians cannot issue the same book at the same moment.
       // Read and lock the book (and its open issue) in one query, so two librarians cannot act on it at once.
@@ -623,17 +786,17 @@ class MySqlLibraryDB {
       const dueDate = addDays(issueDate, days);
       const res = await this.run(
         `INSERT INTO ${this.t.issues} (book_id, book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date,
-           issue_time, duration, due_date, issue_remarks, issued_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           issue_time, duration, due_date, issue_remarks, issued_by, issued_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [book.id, book.book_no, book.name, clean(userName), clean(rank), clean(number), clean(dept), issueDate, at.slice(11), days, dueDate,
-          clean(remarks), at],
+          clean(remarks), issuedBy ? clean(issuedBy) : null, at],
         cx
       );
       return this.get(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE id = ?`, [res.insertId], cx);
     });
   }
 
-  async returnBook({ bookNo, userName, remarks } = {}) {
+  async returnBook({ bookNo, userName, remarks, returnedBy = null } = {}) {
     const at = now();
     const returnDate = at.slice(0, 10);
     return this._transaction(async (cx) => {
@@ -647,9 +810,10 @@ class MySqlLibraryDB {
       }
       const late = returnDate > book.due_date ? 1 : 0;
       await this.run(
-        `UPDATE ${this.t.issues} SET return_date = ?, return_time = ?, return_user = ?, return_remarks = ?, returned_late = ?, returned_at = ?
+        `UPDATE ${this.t.issues} SET return_date = ?, return_time = ?, return_user = ?, return_remarks = ?, returned_by = ?,
+               returned_late = ?, returned_at = ?
           WHERE id = ?`,
-        [returnDate, at.slice(11), clean(userName), clean(remarks), late, at, book.issue_id],
+        [returnDate, at.slice(11), clean(userName), clean(remarks), returnedBy ? clean(returnedBy) : null, late, at, book.issue_id],
         cx
       );
       return this.get(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE id = ?`, [book.issue_id], cx);
@@ -684,7 +848,7 @@ class MySqlLibraryDB {
   }
 
   async recentActivity(limit = 12) {
-    return byBarcode(await this.all(
+    return this.all(
       `SELECT action, book_no, book_name, user_name, at, due_date, late FROM (
          SELECT 'Issued' AS action, book_no, book_name, issue_user AS user_name, issued_at AS at, due_date, 0 AS late FROM ${this.t.issues}
          UNION ALL
@@ -693,13 +857,13 @@ class MySqlLibraryDB {
            FROM ${this.t.issues} WHERE return_date IS NOT NULL
        ) AS a ORDER BY at DESC LIMIT ?`,
       [Number(limit) || 12]
-    ));
+    );
   }
 
   async todaysActivity(kind) {
     const t = today();
-    if (kind === 'issue') return byBarcode(await this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE issue_date = ? ORDER BY id DESC`, [t]));
-    return byBarcode(await this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE return_date = ? ORDER BY returned_at DESC`, [t]));
+    if (kind === 'issue') return this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE issue_date = ? ORDER BY issued_at DESC, id DESC`, [t]);
+    return this.all(`SELECT ${ISSUE_COLS} FROM ${this.t.issues} WHERE return_date = ? ORDER BY returned_at DESC, id DESC`, [t]);
   }
 
   // ---------- Dashboard ----------
@@ -733,15 +897,16 @@ class MySqlLibraryDB {
     const where = ['issue_date <= ?', 'due_date < ?', '(return_date IS NULL OR return_date > ?)'];
     const params = [asOn, asOn, asOn];
     this._textFilters(where, params, { userName, bookNo, q });
-    return byBarcode(await this.all(
+    // Latest action at top: newest issue date-time first.
+    return this.all(
       `SELECT book_no, book_name, issue_user, issue_rank, issue_number, issue_dept, issue_date,
-              IFNULL(issue_time, TIME(issued_at)) AS issue_time, due_date, return_date, issue_remarks,
+              IFNULL(issue_time, TIME(issued_at)) AS issue_time, due_date, return_date, issue_remarks, issued_by,
               DATEDIFF(?, due_date) AS days_overdue
          FROM ${this.t.issues}
         WHERE ${where.join(' AND ')}
-        ORDER BY days_overdue DESC, book_no`,
+        ORDER BY COALESCE(issued_at, TIMESTAMP(issue_date, IFNULL(issue_time, '00:00:00'))) DESC, id DESC`,
       [asOn, ...params]
-    ));
+    );
   }
 
   _textFilters(where, params, { userName = '', bookNo = '', q = '' }) {
@@ -757,7 +922,8 @@ class MySqlLibraryDB {
     }
     const t = clean(q);
     if (t) {
-      const cols = ['book_no', 'book_name', 'issue_user', "IFNULL(return_user, '')", 'issue_remarks', "IFNULL(return_remarks, '')"];
+      const cols = ['book_no', 'book_name', 'issue_user', "IFNULL(return_user, '')", 'issue_remarks', "IFNULL(return_remarks, '')",
+        "IFNULL(issued_by, '')", "IFNULL(returned_by, '')"];
       where.push('(' + cols.map((c) => `${c} LIKE ?`).join(' OR ') + ')');
       params.push(...cols.map(() => likeParam(t)));
     }
@@ -808,8 +974,10 @@ class MySqlLibraryDB {
         throw new UserError('Unknown status filter.');
     }
     this._textFilters(where, params, { userName, bookNo, q });
-    const order = dateBy === 'issue' ? 'issue_date DESC, id DESC' : `${dateCol} DESC, id DESC`;
-    return byBarcode(await this.all(
+    // Latest action at top: each row's return time if returned, otherwise its issue time, newest first.
+    const order = `COALESCE(returned_at, TIMESTAMP(return_date, IFNULL(return_time, '00:00:00')), issued_at,
+                    TIMESTAMP(issue_date, IFNULL(issue_time, '00:00:00'))) DESC, id DESC`;
+    return this.all(
       `SELECT ${ISSUE_COLS},
               CASE
                    WHEN return_date IS NULL AND due_date < ? THEN 'Overdue'
@@ -819,7 +987,7 @@ class MySqlLibraryDB {
          FROM ${this.t.issues} ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
         ORDER BY ${order}`,
       [t, ...params]
-    ));
+    );
   }
 
   // ---------- Backup / restore ----------
@@ -833,10 +1001,10 @@ class MySqlLibraryDB {
   // Replaces everything with the rows of a backup (validated by the app before it is sent).
   async replaceData(data) {
     const cols = {
-      books: ['id', 'book_no', 'name', 'author', 'publisher', 'category', 'lf', 'location', 'rack', 'created_at', 'updated_at'],
+      books: ['id', 'book_no', 'name', 'author', 'publisher', 'category', 'lf', 'location', 'rack', 'created_by', 'updated_by', 'created_at', 'updated_at'],
       issues: ['id', 'book_id', 'book_no', 'book_name', 'issue_user', 'issue_rank', 'issue_number', 'issue_dept', 'issue_date', 'issue_time',
-        'duration', 'due_date', 'issue_remarks', 'return_date', 'return_time', 'return_user', 'return_remarks', 'returned_late', 'issued_at',
-        'returned_at'],
+        'duration', 'due_date', 'issue_remarks', 'issued_by', 'return_date', 'return_time', 'return_user', 'return_remarks', 'returned_by',
+        'returned_late', 'issued_at', 'returned_at'],
       users: ['id', 'username', 'password_hash', 'salt', 'active', 'role', 'permissions', 'created_at', 'updated_at'],
       settings: ['key', 'value', 'updated_at'],
     };
@@ -864,7 +1032,8 @@ function defaults(table, col) {
   if (col === 'active') return 1;
   if (col === 'role') return 'librarian';
   if (col === 'returned_late') return 0;
-  if (['return_date', 'return_user', 'return_remarks', 'returned_at', 'book_id', 'permissions', 'issue_time', 'return_time'].includes(col)) return null;
+  if (['return_date', 'return_user', 'return_remarks', 'returned_at', 'book_id', 'permissions', 'issue_time', 'return_time',
+    'issued_by', 'returned_by', 'created_by', 'updated_by'].includes(col)) return null;
   return '';
 }
 

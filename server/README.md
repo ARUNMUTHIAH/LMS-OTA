@@ -4,7 +4,7 @@ Both desktop apps keep their data in MySQL through this server:
 
 | App | Tables |
 |---|---|
-| Version 1 – Technical Library | `books`, `issues`, `users`, `settings` |
+| Version 1 – Technical Library | `technical_books`, `technical_issues`, `technical_users`, `technical_settings` |
 | Version 2 – General Library | `general_books`, `general_issues`, `general_users`, `general_settings` |
 
 The apps connect to `http://76.13.198.196:4000`. They never get the MySQL password; only this server has it.
@@ -23,12 +23,20 @@ Needs Node.js 18 or newer (`node -v`).
 
 2. Create a MySQL user for the server (in MySQL as root):
    ```sql
-   CREATE DATABASE IF NOT EXISTS technical_library CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   CREATE DATABASE IF NOT EXISTS garuda_lms CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    CREATE USER 'library_app'@'localhost' IDENTIFIED BY 'choose-a-strong-password';
-   GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON technical_library.* TO 'library_app'@'localhost';
+   GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON garuda_lms.* TO 'library_app'@'localhost';
    ```
    The server creates any missing tables itself on start, and adds the Rank / Number / Dept columns to an
-   existing version 1 `issues` table. Running the files in `sql/` first is optional.
+   existing version 1 `technical_issues` table. Running the files in `sql/` first is optional.
+
+   **Upgrading a database from before the rename** (Technical tables named `books`, `issues`, `users`,
+   `settings`): run `scripts/db-rename-technical-tables.sql` in phpMyAdmin *before* starting the new
+   version. It renames them to `technical_*` and keeps all data.
+
+   **Upgrading from the old database name** `garuda_library`: run `scripts/db-rename-database.sql`
+   (as the MySQL admin account) to move every table into `garuda_lms`, then set `DB_NAME=garuda_lms`
+   in `.env` and restart the server.
 
 3. Settings:
    ```bash
@@ -77,6 +85,6 @@ and accounts a PC already has:
   (`%APPDATA%\<app name>\server.json`).
 - The connection is plain HTTP, so passwords cross the internet unencrypted. For HTTPS, put the server
   behind nginx with a certificate (needs a domain name) and set the apps' address to `https://…`.
-- Server-side backups: schedule `mysqldump technical_library > backup.sql`. Each app also saves a daily
+- Server-side backups: schedule `mysqldump garuda_lms > backup.sql`. Each app also saves a daily
   `.db` backup on its PC (Settings → Automatic backup).
 - Check a test server end to end (empty test database only): `LMS_SERVER=http://127.0.0.1:4000 node test/server-check.js`

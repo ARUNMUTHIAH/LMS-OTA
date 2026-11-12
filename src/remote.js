@@ -4,7 +4,7 @@
 
 const { UserError } = require('./database');
 
-// Version 1 = "technical" (tables books, issues, ...), version 2 = "general" (general_books, ...).
+// Version 1 = "technical" (tables technical_books, technical_issues, ...), version 2 = "general" (general_books, ...).
 const EDITION = 'technical';
 const DEFAULT_SERVER_URL = 'http://76.13.198.196:4000';
 const TIMEOUT_MS = 30000;

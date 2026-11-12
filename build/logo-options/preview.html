@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Garuda logo options</title>
+<style>
+ body{font-family:Segoe UI,Arial,sans-serif;background:#f4f6fb;margin:0;padding:24px;color:#111827}
+ h1{font-size:20px;margin:0 0 4px} p{color:#475569;margin:0 0 20px}
+ .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+ .card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px}
+ .card h2{font-size:16px;margin:0 0 4px} .card .d{color:#64748b;font-size:13px;margin-bottom:12px}
+ .big{width:200px;height:200px;display:block;margin:0 auto 14px}
+ .sizes{display:flex;align-items:end;gap:14px;justify-content:center;padding:10px;border-radius:8px}
+ .light{background:#f1f5f9}.dark{background:#1f2937;margin-top:8px}
+ .sizes span{font-size:11px;color:#94a3b8;text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px}
+ .bar{display:flex;align-items:center;gap:8px;background:#1e293b;color:#fff;border-radius:6px;padding:6px 10px;margin-top:10px;font-size:12px}
+</style></head><body>
+<h1>2CQR GARUDA — real eagle logo options</h1>
+<p>Each option at full size, then at the sizes Windows uses (64, 32 and 16 px), on light and dark backgrounds, and in a taskbar-style bar. Tell me the number you like.</p>
+<div class="grid" id="g"></div>
+<script>
+const opts=[["photo-1.png","1 · Bald Eagle — round badge","Close-up of a real bald eagle's head, navy and gold ring."],
+["photo-2.png","2 · Tawny Eagle (India) — round badge","Real Tawny eagle, a species found across India; strong hooked beak."],
+["photo-3.png","3 · Bald Eagle — shield","Real bald eagle head inside a navy and gold shield."],
+["photo-4.png","4 · Eagle in Flight — rounded square","Real eagle with wings spread, the classic Garuda pose."]];
+const g=document.getElementById('g');
+for(const[f,t,d] of opts){const s=n=>`<span><img src="${f}" width="${n}" height="${n}">${n}px</span>`;
+g.insertAdjacentHTML('beforeend',`<div class="card"><h2>${t}</h2><div class="d">${d}</div><img class="big" src="${f}">
+<div class="sizes light">${s(64)}${s(32)}${s(16)}</div><div class="sizes dark">${s(64)}${s(32)}${s(16)}</div>
+<div class="bar"><img src="${f}" width="20" height="20">2CQR GARUDA</div></div>`);}
+</script></body></html>

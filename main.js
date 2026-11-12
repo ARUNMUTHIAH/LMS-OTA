@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, clipboard, safeStorage, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -13,8 +13,16 @@ const { today } = require('./src/dates');
 const { toSqlDump, parseSqlDump } = require('./src/sqldump');
 const { LicenseManager, LicenseError } = require('./src/license');
 
-const APP_NAME = 'Technical Library - CGAS Chennai';
-const APP_TITLE = `${APP_NAME} — 2CQR Garuda LMS`;
+// The name people see everywhere (window title, screens, reports, backup files).
+const APP_TITLE = '2CQR GARUDA';
+// Which of the two libraries this copy is, shown only as a short tag where the two must differ
+// (backup file names). scripts/build-general.js sets "Books" for the second edition.
+const EDITION_TAG = 'Manuals';
+const BACKUP_NAME = `${APP_TITLE} ${EDITION_TAG}`;
+// The data folder (license, database connection, backup settings) keeps its original name, so
+// installs from before the rename find everything where it was. Internal only, never shown.
+// scripts/build-general.js swaps in the second edition's folder.
+app.setPath('userData', path.join(app.getPath('appData'), 'Technical Library - CGAS Chennai'));
 
 // All library data lives on the library server (MySQL); see server/ and src/remote.js.
 let remote = null; // RemoteDB: holds the signed-in session token
@@ -131,7 +139,7 @@ process.on('unhandledRejection', (e) => log('Unhandled', e));
 // Opened with the Settings password while the library database could not be reached: only what
 // works without the database answers (connection, license, automatic-backup options).
 const OFFLINE_CHANNELS = new Set([
-  'auth:logout', 'auth:settingsLogin', 'app:info',
+  'auth:logout', 'auth:settingsLogin', 'app:info', 'brand:logo',
   'dbconn:get', 'dbconn:test', 'dbconn:save', 'dbconn:reset',
   'backup:getAuto', 'backup:setAuto', 'backup:chooseFolder', 'shell:open', 'shell:website',
 ]);
@@ -148,6 +156,19 @@ function checkSettingsPassword(password) {
   settingsTries.count = 0;
   return true;
 }
+
+// Audit log entry for something done on this PC (report exported, backup saved, ...): the server
+// adds the signed-in account and the PC name. Never stops or slows the action itself.
+function auditNote(kind, data = {}) {
+  if (!session || session.offline || !lib) return;
+  lib.logEvent(kind, data).catch(() => {});
+}
+// Report / audit filters as short text for the audit log: "from: 2026-01-01 | status: Issued".
+const filterText = (f) =>
+  Object.entries(f || {})
+    .filter(([, v]) => v !== '' && v != null && v !== false && !(Array.isArray(v) && !v.length))
+    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+    .join(' | ') || 'No filters';
 
 function handle(channel, fn, { auth = true, licensed = true } = {}) {
   ipcMain.handle(channel, async (_event, ...args) => {
@@ -241,7 +262,13 @@ function registerIpc() {
   // (then only the database connection and automatic backup options work, until it is fixed).
   handle('auth:settingsLogin', async (password) => {
     const pw = typeof password === 'string' ? password : '';
-    checkSettingsPassword(pw);
+    try {
+      checkSettingsPassword(pw);
+    } catch (e) {
+      // Wrong password: the server checks it again, which records the failed attempt in the audit log.
+      remote.call('settingsLogin', pw).catch(() => {});
+      throw e;
+    }
     if (session) await remote.call('logout').catch(() => {});
     try {
       const res = await remote.call('settingsLogin', pw);
@@ -255,8 +282,8 @@ function registerIpc() {
       return { user: session, settings: null, error: e.message };
     }
   }, { auth: false });
-  handle('auth:logout', async () => {
-    await remote.call('logout').catch(() => {});
+  handle('auth:logout', async (reason) => {
+    await remote.call('logout', reason === 'idle' ? 'idle' : '').catch(() => {});
     remote.token = null;
     session = null;
     return true;
@@ -284,10 +311,58 @@ function registerIpc() {
 
   // ----- Settings -----
   // The sidebar Settings asks for the same Settings password as the gear on the sign-in screen.
-  handle('settings:unlock', (password) => checkSettingsPassword(typeof password === 'string' ? password : ''));
+  handle('settings:unlock', (password) => {
+    try {
+      checkSettingsPassword(typeof password === 'string' ? password : '');
+    } catch (e) {
+      auditNote('settings_unlock_failed');
+      throw e;
+    }
+    auditNote('settings_opened');
+    return true;
+  });
   handle('settings:get', () => lib.getSettings());
   handle('settings:setDuration', (days) => lib.setDefaultDuration(days));
   handle('settings:setReturnPolicy', (allow) => lib.setAllowOtherReturner(!!allow));
+
+  // ----- Logo (Settings → Logo) -----
+  // The library's own logo, kept in the database (every PC shows it) and shown on the sign-in page
+  // and in the sidebar only. The app icon, window icon and installers stay the 2CQR GARUDA eagle.
+  // A copy is kept in the data folder, so the sign-in page still shows it while the database is down.
+  const logoCache = () => path.join(app.getPath('userData'), 'logo-cache.txt');
+  handle('brand:logo', async () => {
+    try {
+      const logo = await remote.call('brandLogo');
+      if (logo) await fsp.writeFile(logoCache(), logo);
+      else await fsp.rm(logoCache(), { force: true });
+      return logo || null;
+    } catch {
+      return (await fsp.readFile(logoCache(), 'utf8').catch(() => '')) || null;
+    }
+  }, open);
+  handle('brand:choose', async () => {
+    const { canceled, filePaths } = await fileDialog.showOpenDialog(mainWindow, {
+      title: 'Choose Logo',
+      properties: ['openFile'],
+      filters: [{ name: 'Logo picture (PNG, JPG)', extensions: ['png', 'jpg', 'jpeg'] }],
+    });
+    if (canceled || !filePaths.length) return undefined;
+    const stat = await fsp.stat(filePaths[0]);
+    if (stat.size > 10 * 1024 * 1024) throw new UserError('The picture is too large (over 10 MB). Use a smaller one.');
+    let img = nativeImage.createFromPath(filePaths[0]);
+    if (img.isEmpty()) throw new UserError('This file is not a picture the app can read. Use a PNG or JPG.');
+    // Shrunk to at most 512 px: plenty for the sign-in page, and small enough for the database.
+    const { width, height } = img.getSize();
+    if (width > 512 || height > 512) img = img.resize(width >= height ? { width: 512, quality: 'best' } : { height: 512, quality: 'best' });
+    const saved = await lib.setLogo('data:image/png;base64,' + img.toPNG().toString('base64'));
+    await fsp.writeFile(logoCache(), saved).catch(() => {});
+    return saved;
+  });
+  handle('brand:reset', async () => {
+    await lib.setLogo(null);
+    await fsp.rm(logoCache(), { force: true });
+    return null;
+  });
 
   // ----- Dashboard -----
   handle('dashboard:stats', () => lib.dashboard());
@@ -382,6 +457,26 @@ function registerIpc() {
   handle('circ:borrowers', () => lib.borrowerNames());
   handle('circ:borrowerDetails', () => lib.borrowerDetails());
 
+  // ----- Audit log (read only) -----
+  handle('audit:list', (filters) => lib.auditLog(filters || {}));
+  handle('audit:excel', async (filters) => {
+    const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
+      title: 'Export Audit Log to Excel',
+      defaultPath: path.join(app.getPath('documents'), `Audit_Log_${today()}.xlsx`),
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+    });
+    if (canceled || !filePath) return null;
+    const data = await lib.auditLog(filters || {});
+    try {
+      await reports.auditToExcel(data.rows, filterText(filters), filePath);
+    } catch (e) {
+      if (e.code === 'EBUSY' || e.code === 'EPERM') throw new UserError('Could not save the file. Please close it in Excel and try again.');
+      throw e;
+    }
+    auditNote('audit_excel', { filters: filterText(filters) });
+    return filePath;
+  });
+
   // ----- Reports -----
   handle('reports:get', (type, filters) => reports.buildReport(lib, type, filters || {}));
 
@@ -401,6 +496,7 @@ function registerIpc() {
       }
       throw e;
     }
+    auditNote('report_excel', { title, filters: filterText(filters) });
     return filePath;
   });
 
@@ -436,6 +532,7 @@ function registerIpc() {
     } finally {
       cleanup();
     }
+    auditNote('report_pdf', { title, filters: filterText(filters) });
     return filePath;
   });
 
@@ -454,11 +551,12 @@ function registerIpc() {
   handle('db:backup', async () => {
     const { canceled, filePath } = await fileDialog.showSaveDialog(mainWindow, {
       title: 'Save Library Backup',
-      defaultPath: path.join(app.getPath('documents'), `${APP_NAME} Backup ${today()}.sql`),
+      defaultPath: path.join(app.getPath('documents'), `${BACKUP_NAME} Backup ${today()}.sql`),
       filters: [{ name: 'Library Backup (SQL)', extensions: ['sql'] }],
     });
     if (canceled || !filePath) return null;
     await fsp.writeFile(filePath, await backupSql());
+    auditNote('backup_saved', { file: path.basename(filePath) });
     return filePath;
   });
 
@@ -473,7 +571,7 @@ function registerIpc() {
     // older .db backup, brought up to the current layout.
     const bytes = await fsp.readFile(filePaths[0]);
     let data;
-    if (/\.sql$/i.test(filePaths[0])) data = parseSqlDump(bytes.toString('utf8'), { prefix: TABLE_PREFIX });
+    if (/\.sql$/i.test(filePaths[0])) data = parseSqlDump(bytes.toString('utf8'), { prefix: TABLE_PREFIX, oldPrefix: EDITION === 'general' ? null : '' });
     else {
       const local = await LibraryDB.open(null);
       local.restoreFrom(bytes);
@@ -495,6 +593,7 @@ function registerIpc() {
     const n = Number(keep);
     if (!Number.isInteger(n) || n < 1 || n > 365) throw new UserError('Keep must be between 1 and 365 backups.');
     await saveAutoBackupConfig({ ...autoBackup, enabled: !!enabled, keep: n });
+    auditNote('auto_backup_changed', { enabled: !!enabled, keep: n });
     if (autoBackup.enabled) await runAutoBackup();
     await rotateAutoBackups(); // a smaller "keep" applies straight away
     return autoBackupView();
@@ -507,6 +606,7 @@ function registerIpc() {
     });
     if (canceled || !filePaths.length) return null;
     await saveAutoBackupConfig({ ...autoBackup, folder: filePaths[0] });
+    auditNote('auto_backup_changed', { enabled: autoBackup.enabled, keep: autoBackup.keep, folder: filePaths[0] });
     if (autoBackup.enabled) await runAutoBackup();
     return autoBackupView();
   });
@@ -533,6 +633,7 @@ function registerIpc() {
     await mayChangeDb();
     const cfg = dbInput(p || {});
     await testConnection(cfg); // never switch to a connection that does not work
+    auditNote('db_connection_changed', { details: `New connection: ${cfg.host}:${cfg.port || 3306} / ${cfg.database} (user ${cfg.user})` });
     await writeSavedDb(cfg);
     await reconnect();
     return true;
@@ -540,6 +641,7 @@ function registerIpc() {
   handle('dbconn:reset', async () => {
     await mayChangeDb();
     if (!(await builtInDb())) throw new UserError('This copy of the app has no built-in connection.');
+    auditNote('db_connection_changed', { details: 'Back to the built-in connection' });
     await fsp.rm(dbConnFile(), { force: true });
     await reconnect();
     return true;
@@ -547,7 +649,7 @@ function registerIpc() {
 
   handle('app:info', () => ({
     version: app.getVersion(),
-    dataFile: `Library database ${remote.serverUrl} (${EDITION === 'general' ? 'tables general_books, general_issues, general_users' : 'tables books, issues, users'})`,
+    dataFile: `Library database ${remote.serverUrl} (${EDITION === 'general' ? 'tables general_books, general_issues, general_users' : 'tables technical_books, technical_issues, technical_users'})`,
   }));
 }
 
@@ -556,14 +658,14 @@ function registerIpc() {
 // never changes where backups go. Rotational: one file per day in the chosen folder, written at
 // start-up, when the day changes and on exit (the same day's file is refreshed); only the latest
 // "keep" files are kept — each new day's file pushes the oldest one out.
-const AUTO_BACKUP_PREFIX = `${APP_NAME} Auto Backup `;
+const AUTO_BACKUP_PREFIX = `${BACKUP_NAME} Auto Backup `;
 let autoBackup = null; // { enabled, folder, keep, last, lastFile, error }
 
 const autoBackupFile = () => path.join(app.getPath('userData'), 'auto-backup.json');
 
 async function loadAutoBackupConfig() {
   // keepVersion 2: the rotation keeps 10 days by default (it was 30).
-  const defaults = { enabled: true, folder: path.join(app.getPath('documents'), `${APP_NAME} Backups`), keep: 10, keepVersion: 2, last: '', lastFile: '', error: '' };
+  const defaults = { enabled: true, folder: path.join(app.getPath('documents'), `${BACKUP_NAME} Backups`), keep: 10, keepVersion: 2, last: '', lastFile: '', error: '' };
   try {
     const saved = JSON.parse(await fsp.readFile(autoBackupFile(), 'utf8'));
     // Settings saved before keepVersion 2 still holding the old default of 30 move to the new 10 once;
@@ -605,8 +707,8 @@ async function rotate(dir, prefix, keep) {
 
 const rotateAutoBackups = () => rotate(autoBackup.folder, AUTO_BACKUP_PREFIX, autoBackup.keep);
 
-// Tables of this version in the library database: books, ... or general_books, ...
-const TABLE_PREFIX = EDITION === 'general' ? 'general_' : '';
+// Tables of this version in the library database: technical_books, ... or general_books, ...
+const TABLE_PREFIX = EDITION === 'general' ? 'general_' : 'technical_';
 
 // A backup file: a MySQL dump (.sql) of the whole library database, both versions' tables, so the
 // Technical and General apps make the same file. An API server without exportAllData (older
@@ -616,7 +718,7 @@ async function backupSql() {
   let sets;
   try {
     const all = await lib.exportAllData();
-    sets = [{ prefix: '', data: all.technical }, { prefix: 'general_', data: all.general }];
+    sets = [{ prefix: 'technical_', data: all.technical }, { prefix: 'general_', data: all.general }];
   } catch (e) {
     if (!(e instanceof UserError) || e instanceof AuthError) throw e;
     sets = [{ prefix: TABLE_PREFIX, data: await lib.exportData() }];
@@ -637,6 +739,7 @@ async function runAutoBackup({ force = false } = {}) {
     await fsp.rename(file + '.tmp', file);
     await rotateAutoBackups();
     await saveAutoBackupConfig({ ...autoBackup, last: day, lastFile: file, error: '' });
+    auditNote('auto_backup_made', { file: path.basename(file) });
     return file;
   } catch (e) {
     console.error('Automatic backup failed:', e);

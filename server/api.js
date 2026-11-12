@@ -1,14 +1,15 @@
 // The library's callable methods and signed-in sessions, shared by the HTTP server (server/index.js)
 // and the desktop app when it connects straight to MySQL (src/direct.js).
-//   edition "technical" (version 1) -> tables books, issues, users, settings
+//   edition "technical" (version 1) -> tables technical_books, technical_issues, technical_users, technical_settings
 //   edition "general"   (version 2) -> tables general_books, general_issues, general_users, general_settings
 // Only the methods listed here can be called; the signed-in user always comes from the token.
 
 const crypto = require('crypto');
 const { MySqlLibraryDB, UserError, DEFAULT_USERNAME } = require('./library-db');
 const { access } = require('../renderer/rules');
+const audit = require('./audit');
 
-const EDITIONS = { technical: '', general: 'general_' };
+const EDITIONS = { technical: 'technical_', general: 'general_' };
 const USER_RECHECK_MS = 60e3;
 
 // Settings password: opens Settings from the sign-in screen without a librarian account.
@@ -19,7 +20,8 @@ const SETTINGS_USERNAME = 'Settings';
 // What a Settings-password session may do: the Settings page and nothing else.
 const SETTINGS_ONLY_METHODS = new Set([
   'logout', 'listUsers', 'createUser', 'updateUser', 'deleteUser', 'deleteUsers',
-  'getSettings', 'setDefaultDuration', 'setAllowOtherReturner', 'exportData', 'exportAllData', 'replaceData',
+  'getSettings', 'setDefaultDuration', 'setAllowOtherReturner', 'exportData', 'exportAllData', 'replaceData', 'setLogo',
+  'auditLog', 'logEvent',
 ]);
 
 // The permission each method needs (any one of those listed; see access in renderer/rules.js).
@@ -27,7 +29,7 @@ const SETTINGS_ONLY_METHODS = new Set([
 // open to every signed-in account. This is the real check, whatever the app's screens show.
 const SETTINGS_METHODS = [
   'changeCredentials', 'listUsers', 'createUser', 'updateUser', 'deleteUser', 'deleteUsers', 'verifyPassword',
-  'setDefaultDuration', 'setAllowOtherReturner', 'exportData', 'exportAllData', 'replaceData',
+  'setDefaultDuration', 'setAllowOtherReturner', 'exportData', 'exportAllData', 'replaceData', 'setLogo', 'auditLog',
 ];
 const METHOD_PERMS = {
   dashboard: ['dashboard'],
@@ -56,7 +58,8 @@ class AuthRequired extends Error {
   }
 }
 
-function createApi(pool, { sessionHours = 12 } = {}) {
+// sessionHours: a session unused this long ends (the app also signs out after 1 hour idle).
+function createApi(pool, { sessionHours = 1 } = {}) {
   const dbs = {};
   for (const [edition, prefix] of Object.entries(EDITIONS)) dbs[edition] = new MySqlLibraryDB(pool, prefix);
   const sessions = new Map(); // token -> { edition, userId, username, expires }
@@ -87,6 +90,8 @@ function createApi(pool, { sessionHours = 12 } = {}) {
   // Each gets (db, args, ctx) with ctx = { edition, ip, session, token }.
   const PUBLIC = {
     needsSetup: (db) => db.needsSetup(),
+    // The library's own logo for the sign-in page (shown before anyone signs in; not secret).
+    brandLogo: (db) => db.getLogo(),
     loginHint: async (db) => (await db.getSettings()).defaultCredentials,
     async login(db, [{ username, password } = {}], ctx) {
       const f = failures.get(ctx.ip);
@@ -169,23 +174,35 @@ function createApi(pool, { sessionHours = 12 } = {}) {
     getSettings: (db, args, ctx) => settingsFor(db, ctx.session),
     setDefaultDuration: (db, [days]) => db.setDefaultDuration(days),
     setAllowOtherReturner: (db, [allow]) => db.setAllowOtherReturner(!!allow),
+    setLogo: (db, [dataUrl]) => db.setLogo(dataUrl),
     dashboard: (db) => db.dashboard(),
     overdueList: (db, [asOn, filters]) => db.overdueList(asOn, filters || {}),
     searchBooks: (db, [f]) => db.searchBooks(f || {}),
-    saveBook: (db, [b]) => db.saveBook(b || {}),
+    // The account that adds / edits / imports books is always the signed-in one, whatever the app sends.
+    saveBook: (db, [b], ctx) => db.saveBook({ ...(b || {}), savedBy: ctx.session.username }),
     deleteBook: (db, [id]) => db.deleteBook(id),
     categories: (db) => db.categories(),
     shelfValues: (db) => db.shelfValues(),
     validateImport: (db, [rows]) => db.validateImport(rows),
-    importBooks: (db, [rows]) => db.importBooks(rows),
+    importBooks: (db, [rows], ctx) => db.importBooks(rows, ctx.session.username),
     suggestBooks: (db, [f]) => db.suggestBooks(f || {}),
     lookupForCirculation: (db, [bookNo]) => db.lookupForCirculation(bookNo),
-    issueBook: (db, [p]) => db.issueBook(p || {}),
-    returnBook: (db, [p]) => db.returnBook(p || {}),
+    // The account that records an issue / return is always the signed-in one, whatever the app sends.
+    issueBook: (db, [p], ctx) => db.issueBook({ ...(p || {}), issuedBy: ctx.session.username }),
+    returnBook: (db, [p], ctx) => db.returnBook({ ...(p || {}), returnedBy: ctx.session.username }),
     todaysActivity: (db, [kind]) => db.todaysActivity(kind),
     circulationList: (db, [f]) => db.circulationList(f || {}),
     borrowerNames: (db) => db.borrowerNames(),
     borrowerDetails: (db) => db.borrowerDetails(),
+    // Audit log: read only. There is no method to change or delete an entry.
+    auditLog: (db, [f]) => db.auditLog(f || {}),
+    // Something done on the PC (report exported, backup saved, ...): only the kinds in server/audit.js.
+    async logEvent(db, [kind, data], ctx) {
+      const e = audit.eventEntry(kind, data);
+      if (!e) throw new UserError('Unknown event.');
+      await db.addAudit({ ...e, username: ctx.session.username, computer: ctx.computer });
+      return true;
+    },
     exportData: (db) => db.exportData(),
     // Both editions' tables, for a backup of the whole database: { technical: {...}, general: {...} }.
     async exportAllData() {
@@ -202,24 +219,69 @@ function createApi(pool, { sessionHours = 12 } = {}) {
 
   const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
+  // Removes audit entries older than a year, for both editions: once a day (when the date changes),
+  // never stopping a request.
+  let lastPurgeDay = '';
+  function purgeAudit() {
+    const day = new Date().toDateString();
+    if (day === lastPurgeDay) return;
+    lastPurgeDay = day;
+    for (const db of Object.values(dbs)) db.purgeAudit().catch((e) => console.error('Audit log clean-up failed:', e.message));
+  }
+
+  // Runs one call and writes its audit entry: after it finishes, or when it is refused with a
+  // message (wrong password, no access, book already issued, ...). A failed write is reported on
+  // the console and never undoes or stops the action itself.
+  async function withAudit(db, method, args, session, computer, run) {
+    if (!audit.logged(method)) return run();
+    const who = session ? session.username : '';
+    let prev = null;
+    try {
+      prev = await audit.before(method, db, args, session);
+    } catch {
+      prev = null;
+    }
+    const write = (e, username) => {
+      if (!e) return;
+      db.addAudit({ ...e, username, computer }).catch((err) => console.error('Audit log write failed:', err.message));
+    };
+    try {
+      const result = await run();
+      const username = method === 'login' || method === 'setup' ? result.user.username : method === 'settingsLogin' ? SETTINGS_USERNAME : who;
+      write(audit.entry(method, args, { result, before: prev }), username);
+      return result;
+    } catch (e) {
+      if (e instanceof UserError) {
+        const typed = method === 'login' || method === 'setup' ? String((args[0] || {}).username || '').trim() : '';
+        write(audit.entry(method, args, { error: e.message, before: prev }), who || typed || (method === 'settingsLogin' ? SETTINGS_USERNAME : ''));
+      }
+      throw e;
+    }
+  }
+
   return {
     // Creates any missing tables for both editions.
     async init() {
       await Promise.all(Object.values(dbs).map((db) => db.init()));
+      purgeAudit();
     },
     hasEdition: (edition) => own(dbs, edition),
     // Runs one method. Throws UserError (a message for the librarian), AuthRequired, or a database error.
     async call({ edition, method, args = [], token = '', ip = '' }) {
       if (!own(dbs, edition)) throw new UserError('Unknown library.');
       const db = dbs[edition];
-      if (own(PUBLIC, method)) return PUBLIC[method](db, args, { edition, ip });
+      // The PC name (desktop app straight to MySQL) or the network address (API server).
+      const computer = String(ip || '').replace(/^::ffff:/, '');
+      purgeAudit();
+      if (own(PUBLIC, method)) return withAudit(db, method, args, null, computer, () => PUBLIC[method](db, args, { edition, ip }));
       if (!own(METHODS, method)) throw new UserError('Unknown method.');
       const session = sessions.get(token);
       if (!session || session.edition !== edition || session.expires < Date.now()) throw new AuthRequired();
+      const ctx = { edition, ip, computer, session, token };
       if (session.settingsOnly) {
         if (!SETTINGS_ONLY_METHODS.has(method)) throw new AuthRequired();
         session.expires = Date.now() + sessionHours * 3600e3;
-        return METHODS[method](db, args, { edition, ip, session, token });
+        return withAudit(db, method, args, session, computer, () => METHODS[method](db, args, ctx));
       }
       // The account is re-checked at most once a minute (each check is a round trip to the server):
       // an account deleted or made inactive elsewhere is signed out within a minute.
@@ -232,10 +294,12 @@ function createApi(pool, { sessionHours = 12 } = {}) {
         session.checkedAt = Date.now();
         session.perms = access.permsOf(user); // access changed in Settings → Users applies within a minute
       }
-      const need = METHOD_PERMS[method];
-      if (need && !need.some((k) => (session.perms || []).includes(k))) throw new UserError(NO_ACCESS_MESSAGE);
-      session.expires = Date.now() + sessionHours * 3600e3;
-      return METHODS[method](db, args, { edition, ip, session, token });
+      return withAudit(db, method, args, session, computer, () => {
+        const need = METHOD_PERMS[method];
+        if (need && !need.some((k) => (session.perms || []).includes(k))) throw new UserError(NO_ACCESS_MESSAGE);
+        session.expires = Date.now() + sessionHours * 3600e3;
+        return METHODS[method](db, args, ctx);
+      });
     },
   };
 }

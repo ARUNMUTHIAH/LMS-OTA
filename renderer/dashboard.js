@@ -108,7 +108,7 @@ async function showOverdueModal() {
       ? rows.filter((r) => [r.book_no, r.book_name, r.issue_user].some((v) => String(v || '').toLowerCase().includes(q)))
       : rows;
     const { pages, start, slice } = pageSlice(shown, st);
-    $('[data-caption]', m.el).textContent = q ? `${shown.length} of ${rows.length} match` : 'Most overdue first';
+    $('[data-caption]', m.el).textContent = q ? `${shown.length} of ${rows.length} match` : 'Latest action at top, sorted by date-time descending';
     setHtml($('[data-table]', m.el), slice.length
       ? `<table class="table"><thead><tr><th class="idx">S.No</th><th>Barcode No</th><th>Description</th><th>Borrower</th><th>Issue Date</th><th>Due Date</th><th class="num">Days Overdue</th></tr></thead><tbody>
         ${slice

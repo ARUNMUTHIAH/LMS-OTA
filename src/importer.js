@@ -137,7 +137,7 @@ function styleHeader(row) {
 
 async function writeTemplate(filePath) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Technical Library - CGAS Chennai';
+  wb.creator = '2CQR GARUDA';
   const ws = wb.addWorksheet('Books', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
     { header: 'Barcode No', width: 16 },
@@ -180,7 +180,7 @@ async function writeTemplate(filePath) {
 async function writeErrorReport(filePath, rows, errors) {
   const byRow = new Map(errors.map((e) => [e.rowNumber, e.messages]));
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Technical Library - CGAS Chennai';
+  wb.creator = '2CQR GARUDA';
   const ws = wb.addWorksheet('Not Imported', { views: [{ state: 'frozen', ySplit: 1 }] });
   ws.columns = [
     ...FIELDS.map((f) => ({ header: f.label, width: f.key === 'name' ? 48 : 14, style: { numFmt: '@' } })),

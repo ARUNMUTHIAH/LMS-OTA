@@ -186,6 +186,67 @@ function attachSuggest(input, getItems, opts = {}) {
   });
 }
 
+/* ================= Multi-select dropdown ================= */
+// Replaces an empty <div class="ms" data-placeholder="All"> with a button that opens a list of
+// check boxes. Nothing ticked means "All". Returns { setOptions(list), values(), clear() };
+// onChange(values) runs after each tick.
+function multiSelect(el, { onChange = () => {}, noun = 'selected' } = {}) {
+  let options = [];
+  const picked = new Set();
+  const all = el.dataset.placeholder || 'All';
+  setHtml(el, `<button type="button" class="select ms-btn" aria-haspopup="listbox" aria-expanded="false"><span class="ms-text">${esc(all)}</span></button>
+    <div class="ms-menu" role="listbox" aria-multiselectable="true" hidden></div>`);
+  const btn = el.querySelector('.ms-btn');
+  const menu = el.querySelector('.ms-menu');
+  const label = () => {
+    const list = options.filter((o) => picked.has(o));
+    el.querySelector('.ms-text').textContent = !list.length ? all : list.length <= 2 ? list.join(', ') : `${list.length} ${noun}`;
+    btn.title = list.length ? list.join(', ') : all;
+    el.classList.toggle('ms-on', list.length > 0);
+  };
+  const draw = () => {
+    setHtml(menu, `<label class="ms-item ms-all"><input type="checkbox" data-all ${picked.size ? '' : 'checked'} /><span>${esc(all)}</span></label>
+      ${options.map((o, i) => `<label class="ms-item"><input type="checkbox" data-i="${i}" ${picked.has(o) ? 'checked' : ''} /><span>${esc(o)}</span></label>`).join('')}
+      ${options.length ? '' : '<div class="ms-empty muted">Nothing to choose yet</div>'}`);
+    label();
+  };
+  const open = (yes) => {
+    menu.hidden = !yes;
+    btn.setAttribute('aria-expanded', String(yes));
+  };
+  btn.addEventListener('click', () => open(menu.hidden));
+  document.addEventListener('mousedown', (e) => {
+    if (!el.contains(e.target)) open(false);
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      open(false);
+      btn.focus();
+    }
+  });
+  menu.addEventListener('change', (e) => {
+    const box = e.target;
+    if (box.dataset.all !== undefined) picked.clear();
+    else if (box.checked) picked.add(options[Number(box.dataset.i)]);
+    else picked.delete(options[Number(box.dataset.i)]);
+    draw();
+    onChange([...picked]);
+  });
+  draw();
+  return {
+    setOptions(list) {
+      options = [...list];
+      for (const v of [...picked]) if (!options.includes(v)) picked.delete(v);
+      draw();
+    },
+    values: () => options.filter((o) => picked.has(o)),
+    clear() {
+      picked.clear();
+      draw();
+    },
+  };
+}
+
 /* ================= Pagination ================= */
 const PAGE_SIZES = [10, 25, 50, 100];
 

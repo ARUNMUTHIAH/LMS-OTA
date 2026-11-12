@@ -37,7 +37,7 @@ function renderBooks() {
   const filtered = state.books.query || state.books.status || state.books.location;
 
   setHtml($('#books-table'), slice.length
-    ? `<table class="table"><thead><tr><th class="idx">S.No</th><th>Barcode No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th class="actions"></th></tr></thead><tbody>
+    ? `<table class="table"><thead><tr><th class="idx">S.No</th><th>Barcode No</th><th>LF</th><th>CAT</th><th>Description of Manual</th><th>LOC</th><th>Rack</th><th>Status</th><th>Entry Login</th><th class="actions"></th></tr></thead><tbody>
       ${slice
         .map(
           (b, i) => `<tr>
@@ -49,6 +49,7 @@ function renderBooks() {
             <td class="nowrap">${esc(b.location) || '<span class="muted">—</span>'}</td>
             <td class="nowrap">${esc(b.rack) || '<span class="muted">—</span>'}</td>
             <td>${badge(b.status)}${b.status === 'Issued' ? `<div class="tiny muted">${esc(b.issue_user)} · due ${esc(fmtDate(b.due_date))}</div>` : ''}</td>
+            <td class="nowrap">${esc(b.created_by) || '<span class="muted">—</span>'}${b.updated_by && b.updated_at !== b.created_at ? `<div class="tiny muted">edited: ${esc(b.updated_by)}</div>` : ''}</td>
             <td class="actions">
               <button class="icon-btn" data-edit="${b.id}" title="Edit">${icon('edit')}</button>
               <button class="icon-btn danger" data-del="${b.id}" ${b.issue_id ? 'disabled title="Issued books cannot be deleted"' : 'title="Delete"'}>${icon('trash')}</button>

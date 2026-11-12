@@ -6,7 +6,7 @@
 -- In version 2 the screen labels differ: "lf" is shown as Title, "category" as Author,
 -- "book_no" as Barcode No.
 
-USE technical_library;   -- the database version 1 already uses (change the name if different)
+USE garuda_lms;   -- the database version 1 already uses (change the name if different)
 
 CREATE TABLE IF NOT EXISTS general_books (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS general_books (
   lf          VARCHAR(30)  NOT NULL DEFAULT '',   -- shown as "Title" in version 2
   location    VARCHAR(30)  NOT NULL DEFAULT '',   -- LOC
   rack        VARCHAR(30)  NOT NULL DEFAULT '',
+  created_by  VARCHAR(100) NULL,
+  updated_by  VARCHAR(100) NULL,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
