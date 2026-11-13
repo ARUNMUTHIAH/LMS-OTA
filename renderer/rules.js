@@ -5,14 +5,11 @@
   else root.Rules = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   const LIMITS = {
-    bookNo: 50,
-    bookName: 200,
+    // Barcode No is the unique key, so the database column needs a size: 768 (the most MySQL can keep unique) is far above any real
+    // barcode. Description, LF / Title, CAT / Author, LOC and Rack have no length limit (TEXT columns).
+    bookNo: 768,
     author: 150,
     publisher: 150,
-    category: 100,
-    lf: 30,
-    location: 30,
-    rack: 30,
     person: 100,
     detail: 50,
     remarks: 250,
@@ -25,21 +22,23 @@
   const clean = (v) => (v == null ? '' : String(v)).trim().replace(/\s+/g, ' ');
   const hasLetter = (v) => /\p{L}/u.test(v);
   const tooLong = (v, max, label) => (v.length > max ? `${label} must be ${max} characters or fewer.` : '');
+  // A book field value as saved: spaces tidied, and a lone hyphen ("-", "–", "—": not known yet,
+  // to be filled in later) saved as blank.
+  const bookValue = (v) => {
+    const s = clean(v);
+    return /^[-–—]+$/.test(s) ? '' : s;
+  };
 
   const checks = {
+    // Barcode No is the only required book field; Description, LF, CAT, LOC, Rack may be blank.
     bookNo(raw) {
-      const v = clean(raw);
+      const v = bookValue(raw);
       if (!v) return 'Barcode No is required.';
-      if (v.length > LIMITS.bookNo) return tooLong(v, LIMITS.bookNo, 'Barcode No');
+      if (v.length > LIMITS.bookNo) return 'Barcode No is too long.';
       if (!/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/.test(v)) {
         return 'Barcode No can contain only letters, numbers and - / _ . (no spaces).';
       }
       return '';
-    },
-    bookName(raw) {
-      const v = clean(raw);
-      if (!v) return 'Description of Manual is required.';
-      return tooLong(v, LIMITS.bookName, 'Description of Manual');
     },
     author(raw) {
       const v = clean(raw);
@@ -53,18 +52,8 @@
       return tooLong(v, LIMITS.publisher, 'Publisher');
     },
     category(raw) {
-      const v = clean(raw);
-      if (v && !hasLetter(v)) return 'CAT must contain letters.';
-      return tooLong(v, LIMITS.category, 'CAT');
-    },
-    lf(raw) {
-      return tooLong(clean(raw), LIMITS.lf, 'LF');
-    },
-    location(raw) {
-      return tooLong(clean(raw), LIMITS.location, 'LOC');
-    },
-    rack(raw) {
-      return tooLong(clean(raw), LIMITS.rack, 'Rack');
+      const v = bookValue(raw);
+      return v && !hasLetter(v) ? 'CAT must contain letters.' : '';
     },
     person(raw, label = 'Name') {
       const v = clean(raw);
@@ -165,5 +154,5 @@
   }
   const access = { PERMISSIONS, ALL, PRESETS, VIEW_ONLY, normalizePerms, permsOf, accessLabel };
 
-  return { LIMITS, clean, checks, access };
+  return { LIMITS, clean, bookValue, checks, access };
 });

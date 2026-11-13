@@ -6,7 +6,7 @@ const os = require('os');
 const mysql = require('mysql2/promise');
 const { createApi, AuthRequired, UserError: ApiUserError } = require('../server/api');
 const { UserError } = require('./database');
-const { AuthError } = require('./remote');
+const { AuthError, relabel, relabelData } = require('./remote');
 
 // MySQL errors that mean the database cannot be reached or the login is wrong.
 const CONNECTION_ERRORS = new Set([
@@ -69,13 +69,13 @@ class DirectDB {
   async call(method, ...args) {
     try {
       const api = await this._api();
-      return await api.call({ edition: this.edition, method, args, token: this.token || '', ip: os.hostname() });
+      return relabelData(await api.call({ edition: this.edition, method, args, token: this.token || '', ip: os.hostname() }));
     } catch (e) {
       if (e instanceof AuthRequired) {
         this.token = null;
         throw new AuthError(e.message);
       }
-      if (e instanceof ApiUserError) throw new UserError(e.message);
+      if (e instanceof ApiUserError) throw new UserError(relabel(e.message));
       if (CONNECTION_ERRORS.has(e.code)) {
         throw new UserError('Cannot connect to the library database. Check the internet connection and try again.');
       }

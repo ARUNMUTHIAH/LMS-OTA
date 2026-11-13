@@ -6,7 +6,7 @@
 
 const crypto = require('crypto');
 const { today, isValidDate, addDays, display, daysBetween } = require('../src/dates');
-const { checks, access } = require('../renderer/rules');
+const { checks, access, bookValue } = require('../renderer/rules');
 
 const DEFAULT_USERNAME = 'admin';
 const TABLES = ['books', 'issues', 'users', 'settings'];
@@ -111,14 +111,14 @@ function schema(p) {
   return [
     `CREATE TABLE IF NOT EXISTS ${p}books (
       id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-      book_no     VARCHAR(50)  NOT NULL,
-      name        VARCHAR(200) NOT NULL,
+      book_no     VARCHAR(768) NOT NULL,
+      name        TEXT         NOT NULL,
       author      VARCHAR(150) NOT NULL DEFAULT '',
       publisher   VARCHAR(150) NOT NULL DEFAULT '',
-      category    VARCHAR(100) NOT NULL DEFAULT '',
-      lf          VARCHAR(30)  NOT NULL DEFAULT '',
-      location    VARCHAR(30)  NOT NULL DEFAULT '',
-      rack        VARCHAR(30)  NOT NULL DEFAULT '',
+      category    TEXT         NOT NULL,
+      lf          TEXT         NOT NULL,
+      location    TEXT         NOT NULL,
+      rack        TEXT         NOT NULL,
       created_by  VARCHAR(100) NULL,
       updated_by  VARCHAR(100) NULL,
       created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -129,8 +129,8 @@ function schema(p) {
     `CREATE TABLE IF NOT EXISTS ${p}issues (
       id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
       book_id         INT UNSIGNED NULL,
-      book_no         VARCHAR(50)  NOT NULL,
-      book_name       VARCHAR(200) NOT NULL,
+      book_no         VARCHAR(768) NOT NULL,
+      book_name       TEXT         NOT NULL,
       issue_user      VARCHAR(100) NOT NULL,
       issue_rank      VARCHAR(50)  NOT NULL DEFAULT '',
       issue_number    VARCHAR(50)  NOT NULL DEFAULT '',
@@ -191,7 +191,7 @@ class MySqlLibraryDB {
   // tables are only created / altered when something is actually missing.
   async init() {
     const [cols] = await this.pool.query(
-      'SELECT TABLE_NAME AS t, COLUMN_NAME AS c, DATA_TYPE AS d FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)',
+      'SELECT TABLE_NAME AS t, COLUMN_NAME AS c, DATA_TYPE AS d, CHARACTER_MAXIMUM_LENGTH AS l FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)',
       [[...Object.values(this.t), this.audit]]
     );
     const tables = new Set(cols.map((r) => r.t));
@@ -230,6 +230,25 @@ class MySqlLibraryDB {
       await this.pool.query(`ALTER TABLE ${this.t.books} ADD COLUMN created_by VARCHAR(100) NULL AFTER rack,
         ADD COLUMN updated_by VARCHAR(100) NULL AFTER created_by`);
     }
+    // Book fields had length limits (VARCHAR 30-200): Barcode No is widened to VARCHAR(768) and
+    // Description, LF / Title, CAT / Author, LOC, Rack become TEXT (no practical limit).
+    const colType = (t, c) => cols.find((r) => r.t === t && r.c === c);
+    const isVarchar = (col) => col && String(col.d).toLowerCase() === 'varchar';
+    const bookNo = colType(this.t.books, 'book_no');
+    if (bookNo && Number(bookNo.l) < 768) {
+      await this.pool.query(`ALTER TABLE ${this.t.books} MODIFY book_no VARCHAR(768) NOT NULL`);
+    }
+    const toText = ['name', 'category', 'lf', 'location', 'rack'].filter((c) => isVarchar(colType(this.t.books, c)));
+    if (toText.length) {
+      await this.pool.query(`ALTER TABLE ${this.t.books} ${toText.map((c) => `MODIFY ${c} TEXT NOT NULL`).join(', ')}`);
+    }
+    const issueNo = colType(this.t.issues, 'book_no');
+    const issueName = colType(this.t.issues, 'book_name');
+    const issueAlter = [
+      issueNo && Number(issueNo.l) < 768 ? 'MODIFY book_no VARCHAR(768) NOT NULL' : '',
+      isVarchar(issueName) ? 'MODIFY book_name TEXT NOT NULL' : '',
+    ].filter(Boolean);
+    if (issueAlter.length) await this.pool.query(`ALTER TABLE ${this.t.issues} ${issueAlter.join(', ')}`);
     if (tables.has(this.t.users) && !userCols.includes('role')) {
       await this.pool.query(`ALTER TABLE ${this.t.users} ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'librarian' AFTER active`);
       userCols.push('role');
@@ -616,20 +635,16 @@ class MySqlLibraryDB {
     const by = input.savedBy ? clean(input.savedBy) : null;
     const book = {
       id: input.id ? Number(input.id) : null,
-      book_no: clean(input.book_no),
-      name: clean(input.name),
-      lf: clean(input.lf),
-      category: clean(input.category),
-      location: clean(input.location),
-      rack: clean(input.rack),
+      book_no: bookValue(input.book_no),
+      name: bookValue(input.name),
+      lf: bookValue(input.lf),
+      category: bookValue(input.category),
+      location: bookValue(input.location),
+      rack: bookValue(input.rack),
     };
     check(
       checks.bookNo(book.book_no),
-      checks.lf(book.lf),
-      checks.category(book.category),
-      checks.bookName(book.name),
-      checks.location(book.location),
-      checks.rack(book.rack)
+      checks.category(book.category)
     );
     const dup = await this.get(`SELECT id FROM ${this.t.books} WHERE book_no = ?`, [book.book_no]);
     if (dup && dup.id !== book.id) {
@@ -672,21 +687,17 @@ class MySqlLibraryDB {
     for (const r of rows) {
       const v = r.values || {};
       const book = {
-        book_no: clean(v.book_no),
-        lf: clean(v.lf),
-        category: clean(v.category),
-        name: clean(v.name),
-        location: clean(v.location),
-        rack: clean(v.rack),
+        book_no: bookValue(v.book_no),
+        lf: bookValue(v.lf),
+        category: bookValue(v.category),
+        name: bookValue(v.name),
+        location: bookValue(v.location),
+        rack: bookValue(v.rack),
       };
       const messages = [
         ...(Array.isArray(r.issues) ? r.issues : []),
         checks.bookNo(book.book_no),
-        checks.lf(book.lf),
-        checks.category(book.category),
-        checks.bookName(book.name),
-        checks.location(book.location),
-        checks.rack(book.rack),
+        checks.category(book.category)
       ].filter(Boolean);
       const key = book.book_no.toLowerCase();
       if (key) {

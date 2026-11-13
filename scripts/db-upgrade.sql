@@ -37,14 +37,14 @@ PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 
 CREATE TABLE IF NOT EXISTS `technical_books` (
   `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `book_no`     VARCHAR(50)  NOT NULL,
-  `name`        VARCHAR(200) NOT NULL,
+  `book_no`     VARCHAR(768) NOT NULL,
+  `name`        TEXT         NOT NULL,
   `author`      VARCHAR(150) NOT NULL DEFAULT '',
   `publisher`   VARCHAR(150) NOT NULL DEFAULT '',
-  `category`    VARCHAR(100) NOT NULL DEFAULT '',
-  `lf`          VARCHAR(30)  NOT NULL DEFAULT '',
-  `location`    VARCHAR(30)  NOT NULL DEFAULT '',
-  `rack`        VARCHAR(30)  NOT NULL DEFAULT '',
+  `category`    TEXT         NOT NULL,
+  `lf`          TEXT         NOT NULL,
+  `location`    TEXT         NOT NULL,
+  `rack`        TEXT         NOT NULL,
   `created_by`  VARCHAR(100) NULL,
   `updated_by`  VARCHAR(100) NULL,
   `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS `technical_books` (
 CREATE TABLE IF NOT EXISTS `technical_issues` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `book_id`         INT UNSIGNED NULL,
-  `book_no`         VARCHAR(50)  NOT NULL,
-  `book_name`       VARCHAR(200) NOT NULL,
+  `book_no`         VARCHAR(768) NOT NULL,
+  `book_name`       TEXT         NOT NULL,
   `issue_user`      VARCHAR(100) NOT NULL,
   `issue_rank`      VARCHAR(50)  NOT NULL DEFAULT '',
   `issue_number`    VARCHAR(50)  NOT NULL DEFAULT '',
@@ -149,6 +149,17 @@ PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 SET @s = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE `technical_books` ADD COLUMN `updated_by` VARCHAR(100) NULL AFTER `created_by`', 'DO 0') FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'technical_books' AND COLUMN_NAME = 'updated_by');
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+-- technical_books / technical_issues: no length limit on book fields. Barcode No becomes VARCHAR(768); Description,
+-- LF / Title, CAT / Author, LOC and Rack (and the issue's book name) become TEXT.
+SET @s = (SELECT IF(COUNT(*) = 1, 'ALTER TABLE `technical_books` MODIFY `book_no` VARCHAR(768) NOT NULL', 'DO 0') FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'technical_books' AND COLUMN_NAME = 'book_no' AND CHARACTER_MAXIMUM_LENGTH < 768);
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+SET @s = (SELECT IF(COUNT(*) > 0, 'ALTER TABLE `technical_books` MODIFY `name` TEXT NOT NULL, MODIFY `category` TEXT NOT NULL, MODIFY `lf` TEXT NOT NULL, MODIFY `location` TEXT NOT NULL, MODIFY `rack` TEXT NOT NULL', 'DO 0') FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'technical_books' AND COLUMN_NAME IN ('name', 'category', 'lf', 'location', 'rack') AND DATA_TYPE = 'varchar');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+SET @s = (SELECT IF(COUNT(*) > 0, 'ALTER TABLE `technical_issues` MODIFY `book_no` VARCHAR(768) NOT NULL, MODIFY `book_name` TEXT NOT NULL', 'DO 0') FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'technical_issues' AND ((COLUMN_NAME = 'book_no' AND CHARACTER_MAXIMUM_LENGTH < 768) OR (COLUMN_NAME = 'book_name' AND DATA_TYPE = 'varchar')));
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 
 -- users.role
 SET @s = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE `technical_users` ADD COLUMN `role` VARCHAR(20) NOT NULL DEFAULT ''librarian'' AFTER `active`', 'DO 0') FROM information_schema.COLUMNS
@@ -193,14 +204,14 @@ INSERT IGNORE INTO `technical_settings` (`key`, `value`) VALUES ('default_durati
 
 CREATE TABLE IF NOT EXISTS `general_books` (
   `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `book_no`     VARCHAR(50)  NOT NULL,
-  `name`        VARCHAR(200) NOT NULL,
+  `book_no`     VARCHAR(768) NOT NULL,
+  `name`        TEXT         NOT NULL,
   `author`      VARCHAR(150) NOT NULL DEFAULT '',
   `publisher`   VARCHAR(150) NOT NULL DEFAULT '',
-  `category`    VARCHAR(100) NOT NULL DEFAULT '',
-  `lf`          VARCHAR(30)  NOT NULL DEFAULT '',
-  `location`    VARCHAR(30)  NOT NULL DEFAULT '',
-  `rack`        VARCHAR(30)  NOT NULL DEFAULT '',
+  `category`    TEXT         NOT NULL,
+  `lf`          TEXT         NOT NULL,
+  `location`    TEXT         NOT NULL,
+  `rack`        TEXT         NOT NULL,
   `created_by`  VARCHAR(100) NULL,
   `updated_by`  VARCHAR(100) NULL,
   `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -212,8 +223,8 @@ CREATE TABLE IF NOT EXISTS `general_books` (
 CREATE TABLE IF NOT EXISTS `general_issues` (
   `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `book_id`         INT UNSIGNED NULL,
-  `book_no`         VARCHAR(50)  NOT NULL,
-  `book_name`       VARCHAR(200) NOT NULL,
+  `book_no`         VARCHAR(768) NOT NULL,
+  `book_name`       TEXT         NOT NULL,
   `issue_user`      VARCHAR(100) NOT NULL,
   `issue_rank`      VARCHAR(50)  NOT NULL DEFAULT '',
   `issue_number`    VARCHAR(50)  NOT NULL DEFAULT '',
@@ -304,6 +315,17 @@ PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 -- general_books.updated_by (the signed-in account that added / last edited the book)
 SET @s = (SELECT IF(COUNT(*) = 0, 'ALTER TABLE `general_books` ADD COLUMN `updated_by` VARCHAR(100) NULL AFTER `created_by`', 'DO 0') FROM information_schema.COLUMNS
           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'general_books' AND COLUMN_NAME = 'updated_by');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+-- general_books / general_issues: no length limit on book fields. Barcode No becomes VARCHAR(768); Description,
+-- LF / Title, CAT / Author, LOC and Rack (and the issue's book name) become TEXT.
+SET @s = (SELECT IF(COUNT(*) = 1, 'ALTER TABLE `general_books` MODIFY `book_no` VARCHAR(768) NOT NULL', 'DO 0') FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'general_books' AND COLUMN_NAME = 'book_no' AND CHARACTER_MAXIMUM_LENGTH < 768);
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+SET @s = (SELECT IF(COUNT(*) > 0, 'ALTER TABLE `general_books` MODIFY `name` TEXT NOT NULL, MODIFY `category` TEXT NOT NULL, MODIFY `lf` TEXT NOT NULL, MODIFY `location` TEXT NOT NULL, MODIFY `rack` TEXT NOT NULL', 'DO 0') FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'general_books' AND COLUMN_NAME IN ('name', 'category', 'lf', 'location', 'rack') AND DATA_TYPE = 'varchar');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+SET @s = (SELECT IF(COUNT(*) > 0, 'ALTER TABLE `general_issues` MODIFY `book_no` VARCHAR(768) NOT NULL, MODIFY `book_name` TEXT NOT NULL', 'DO 0') FROM information_schema.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'general_issues' AND ((COLUMN_NAME = 'book_no' AND CHARACTER_MAXIMUM_LENGTH < 768) OR (COLUMN_NAME = 'book_name' AND DATA_TYPE = 'varchar')));
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 
 -- general_users.role

@@ -7,7 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const initSqlJs = require('sql.js');
 const { today, isValidDate, addDays, display } = require('./dates');
-const { checks } = require('../renderer/rules');
+const { checks, bookValue } = require('../renderer/rules');
 
 // Databases created by releases before 1.1 were seeded with a built-in "admin" account; the
 // Settings warning about changing its password only applies to that account.
@@ -453,20 +453,16 @@ class LibraryDB {
   saveBook(input) {
     const book = {
       id: input.id ? Number(input.id) : null,
-      book_no: clean(input.book_no),
-      name: clean(input.name),
-      lf: clean(input.lf),
-      category: clean(input.category),
-      location: clean(input.location),
-      rack: clean(input.rack),
+      book_no: bookValue(input.book_no),
+      name: bookValue(input.name),
+      lf: bookValue(input.lf),
+      category: bookValue(input.category),
+      location: bookValue(input.location),
+      rack: bookValue(input.rack),
     };
     check(
       checks.bookNo(book.book_no),
-      checks.lf(book.lf),
-      checks.category(book.category),
-      checks.bookName(book.name),
-      checks.location(book.location),
-      checks.rack(book.rack)
+      checks.category(book.category)
     );
 
     const dup = this.get('SELECT id FROM books WHERE book_no = ? COLLATE NOCASE', [book.book_no]);
@@ -509,21 +505,17 @@ class LibraryDB {
     for (const r of rows) {
       const v = r.values || {};
       const book = {
-        book_no: clean(v.book_no),
-        lf: clean(v.lf),
-        category: clean(v.category),
-        name: clean(v.name),
-        location: clean(v.location),
-        rack: clean(v.rack),
+        book_no: bookValue(v.book_no),
+        lf: bookValue(v.lf),
+        category: bookValue(v.category),
+        name: bookValue(v.name),
+        location: bookValue(v.location),
+        rack: bookValue(v.rack),
       };
       const messages = [
         ...(r.issues || []),
         checks.bookNo(book.book_no),
-        checks.lf(book.lf),
-        checks.category(book.category),
-        checks.bookName(book.name),
-        checks.location(book.location),
-        checks.rack(book.rack),
+        checks.category(book.category)
       ].filter(Boolean);
       const key = book.book_no.toLowerCase();
       if (key) {

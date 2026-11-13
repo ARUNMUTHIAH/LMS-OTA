@@ -5,9 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
 const { UserError } = require('./database');
+const { bookValue } = require('../renderer/rules');
 
 const MAX_BYTES = 5 * 1024 * 1024;
-const MAX_ROWS = 5000;
 const HEADER_SCAN_ROWS = 10; // a title row (e.g. "DORNIER AIRCRAFT PUBLICATION") may sit above the header
 
 // Accepted header spellings, compared after lower-casing and removing spaces/punctuation.
@@ -18,7 +18,6 @@ const FIELDS = [
   {
     key: 'name',
     label: 'Description of Manual',
-    required: true,
     aliases: ['descriptionofmanual', 'descriptionsofmanual', 'description', 'descriptions', 'title', 'bookname', 'manual'],
   },
   { key: 'location', label: 'LOC', aliases: ['loc', 'location'] },
@@ -64,7 +63,7 @@ async function readBookSheet(filePath) {
   const ws = wb.worksheets.find((s) => s.state !== 'hidden' && s.actualRowCount > 0);
   if (!ws) throw new UserError('The workbook has no data.');
 
-  // Find the header row: the first row (within the top few) that names both required columns.
+  // Find the header row: the first row (within the top few) that names the Barcode No column.
   let headerRow = 0;
   let columns = null;
   let ignored = [];
@@ -89,8 +88,8 @@ async function readBookSheet(filePath) {
   }
   if (!headerRow) {
     throw new UserError(
-      'Could not find the header row. The first sheet must have the columns "Barcode No" and "Description of Manual" ' +
-        '(plus optional LF, CAT, LOC, Rack). Download the template to see the expected layout.'
+      'Could not find the header row. The first sheet must have the column "Barcode No" ' +
+        '(plus optional LF, CAT, Description of Manual, LOC, Rack). Download the template to see the expected layout.'
     );
   }
 
@@ -105,13 +104,12 @@ async function readBookSheet(filePath) {
         continue;
       }
       const { text, issue } = readCell(row.getCell(columns[f.key]).value);
-      values[f.key] = text;
+      values[f.key] = bookValue(text);
       if (issue === 'date') issues.push(`${f.label} was read as a date by Excel. Format the column as Text and re-type the value.`);
       if (issue === 'error') issues.push(`${f.label} contains a formula error.`);
     }
     if (!issues.length && FIELDS.every((f) => !values[f.key].trim())) continue; // blank row
     rows.push({ rowNumber: r, values, issues });
-    if (rows.length > MAX_ROWS) throw new UserError(`The sheet has more than ${MAX_ROWS} book rows. Split it into smaller files.`);
   }
   if (!rows.length) throw new UserError('No book rows were found below the header row.');
 
@@ -159,16 +157,17 @@ async function writeTemplate(filePath) {
   help.addRow(['Column', 'Rule']);
   styleHeader(help.getRow(1));
   [
-    ['Barcode No *', 'Required. Must be unique (not already in the library, not repeated in the file). Letters, numbers and - / _ . only, no spaces. Max 50.'],
-    ['LF', 'Optional. Max 30 characters, e.g. 001-06.'],
-    ['CAT', 'Optional. Must contain letters, max 100, e.g. DOR-MM.'],
-    ['Description of Manual *', 'Required. Max 200 characters.'],
-    ['LOC', 'Optional. Max 30 characters, e.g. B2.'],
-    ['Rack', 'Optional. Max 30 characters, e.g. 6.'],
+    ['Barcode No *', 'Required. Must be unique (not already in the library, not repeated in the file). Letters, numbers and - / _ . only, no spaces.'],
+    ['LF', 'Optional, e.g. 001-06.'],
+    ['CAT', 'Optional. Must contain letters, e.g. DOR-MM.'],
+    ['Description of Manual', 'Optional.'],
+    ['LOC', 'Optional, e.g. B2.'],
+    ['Rack', 'Optional, e.g. 6.'],
     ['', ''],
     ['Notes', 'Keep the header row as it is. Delete the two example rows before importing. Blank rows are skipped.'],
+    ['', 'Only Barcode No is required. Leave other cells empty, or put - (hyphen): it is saved as blank and can be filled in later by editing the book.'],
     ['', 'Keep all columns formatted as Text so Excel does not change values like 001-06 into dates.'],
-    ['', `Up to ${MAX_ROWS} books per file. Rows with errors are listed before anything is saved.`],
+    ['', 'Rows with errors are listed before anything is saved.'],
   ].forEach((r) => help.addRow(r));
   help.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
   await wb.xlsx.writeFile(filePath);
@@ -208,4 +207,4 @@ function rejectsPath(dir, sourceName, date) {
   return p;
 }
 
-module.exports = { readBookSheet, writeTemplate, writeErrorReport, rejectsPath, FIELDS, MAX_ROWS };
+module.exports = { readBookSheet, writeTemplate, writeErrorReport, rejectsPath, FIELDS };

@@ -114,7 +114,7 @@ function openImportDialog() {
     setHtml(body, `
       ${error ? `<div class="alert alert-danger import-alert">${icon('alert')}<div><strong>File not accepted</strong>${esc(error)}</div></div>` : ''}
       <ol class="import-steps">
-        <li><strong>Download the template</strong><span>Columns: Barcode No, LF, CAT, Description of Manual, LOC, Rack. Barcode No and Description of Manual are required.</span></li>
+        <li><strong>Download the template</strong><span>Columns: Barcode No, LF, CAT, Description of Manual, LOC, Rack. Only Barcode No is required; a cell with just - is saved as blank.</span></li>
         <li><strong>Fill in one book per row</strong><span>Keep the header row. Barcode Nos must be unique. Blank rows are skipped.</span></li>
         <li><strong>Choose the file</strong><span>Every row is checked first. Nothing is saved until you confirm.</span></li>
       </ol>`);
@@ -206,16 +206,16 @@ function openBookForm(book = null, prefillNo = '') {
     title: isEdit ? 'Edit Book' : 'Add New Book',
     iconName: isEdit ? 'edit' : 'plus',
     body: `<form method="post" id="book-form" autocomplete="off" novalidate>
-      <label class="field"><span>Barcode No <em>*</em></span><input name="book_no" maxlength="${LIMITS.bookNo}" spellcheck="false" value="${esc(b.book_no)}" placeholder="e.g. OTA-0001" />
+      <label class="field"><span>Barcode No <em>*</em></span><input name="book_no" spellcheck="false" value="${esc(b.book_no)}" placeholder="e.g. OTA-0001" />
         <span class="hint">Must be unique. Letters, numbers and - / _ . only.</span></label>
       <div class="row-2">
-        <label class="field"><span>LF</span><input name="lf" maxlength="${LIMITS.lf}" spellcheck="false" value="${esc(b.lf)}" placeholder="e.g. 001-06" /></label>
-        <label class="field"><span>CAT</span><input name="category" maxlength="${LIMITS.category}" spellcheck="false" value="${esc(b.category)}" placeholder="e.g. DOR-MM" /></label>
+        <label class="field"><span>LF</span><input name="lf" spellcheck="false" value="${esc(b.lf)}" placeholder="e.g. 001-06" /></label>
+        <label class="field"><span>CAT</span><input name="category" spellcheck="false" value="${esc(b.category)}" placeholder="e.g. DOR-MM" /></label>
       </div>
-      <label class="field"><span>Description of Manual <em>*</em></span><input name="name" maxlength="${LIMITS.bookName}" value="${esc(b.name)}" placeholder="e.g. Airplane Maintenance Manual Vol-I (CG-780)" /></label>
+      <label class="field"><span>Description of Manual</span><input name="name" value="${esc(b.name)}" placeholder="e.g. Airplane Maintenance Manual Vol-I (CG-780)" /></label>
       <div class="row-2">
-        <label class="field"><span>LOC</span><input name="location" maxlength="${LIMITS.location}" spellcheck="false" value="${esc(b.location)}" placeholder="e.g. B2" /></label>
-        <label class="field"><span>Rack</span><input name="rack" maxlength="${LIMITS.rack}" spellcheck="false" value="${esc(b.rack)}" placeholder="e.g. 6" /></label>
+        <label class="field"><span>LOC</span><input name="location" spellcheck="false" value="${esc(b.location)}" placeholder="e.g. B2" /></label>
+        <label class="field"><span>Rack</span><input name="rack" spellcheck="false" value="${esc(b.rack)}" placeholder="e.g. 6" /></label>
       </div>
       <div class="form-error" hidden></div>
       <button type="submit" hidden></button>
@@ -234,11 +234,7 @@ function openBookForm(book = null, prefillNo = '') {
     errBox.hidden = true;
     const valid = validateFields([
       [form.book_no, RULES.bookNo],
-      [form.lf, RULES.lf],
       [form.category, RULES.category],
-      [form.name, RULES.bookName],
-      [form.location, RULES.location],
-      [form.rack, RULES.rack],
     ]);
     if (!valid) return;
     const data = Object.fromEntries(new FormData(form).entries());

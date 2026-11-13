@@ -10,14 +10,14 @@ USE garuda_lms;   -- the database version 1 already uses (change the name if dif
 
 CREATE TABLE IF NOT EXISTS general_books (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  book_no     VARCHAR(50)  NOT NULL,              -- Barcode No (unique, case-insensitive)
-  name        VARCHAR(200) NOT NULL,              -- Description of Manual
+  book_no     VARCHAR(768) NOT NULL,              -- Barcode No (unique, case-insensitive)
+  name        TEXT         NOT NULL,              -- Description of Manual
   author      VARCHAR(150) NOT NULL DEFAULT '',
   publisher   VARCHAR(150) NOT NULL DEFAULT '',
-  category    VARCHAR(100) NOT NULL DEFAULT '',   -- shown as "Author" in version 2
-  lf          VARCHAR(30)  NOT NULL DEFAULT '',   -- shown as "Title" in version 2
-  location    VARCHAR(30)  NOT NULL DEFAULT '',   -- LOC
-  rack        VARCHAR(30)  NOT NULL DEFAULT '',
+  category    TEXT         NOT NULL,   -- shown as "Author" in version 2
+  lf          TEXT         NOT NULL,   -- shown as "Title" in version 2
+  location    TEXT         NOT NULL,   -- LOC
+  rack        TEXT         NOT NULL,
   created_by  VARCHAR(100) NULL,
   updated_by  VARCHAR(100) NULL,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS general_books (
 CREATE TABLE IF NOT EXISTS general_issues (
   id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
   book_id         INT UNSIGNED NULL,               -- NULL once the book is deleted; history is kept
-  book_no         VARCHAR(50)  NOT NULL,           -- snapshot of the Barcode No at issue time
-  book_name       VARCHAR(200) NOT NULL,
+  book_no         VARCHAR(768) NOT NULL,           -- snapshot of the Barcode No at issue time
+  book_name       TEXT         NOT NULL,
   issue_user      VARCHAR(100) NOT NULL,           -- Name
   issue_rank      VARCHAR(50)  NOT NULL DEFAULT '',
   issue_number    VARCHAR(50)  NOT NULL DEFAULT '',

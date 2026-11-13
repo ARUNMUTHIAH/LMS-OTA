@@ -38,11 +38,23 @@ const expectUserError = (fn, pattern) =>
 
   // Book entry: mandatory fields, uniqueness
   expectUserError(() => db.saveBook({ book_no: '', name: 'x' }), /Barcode No is required/);
-  expectUserError(() => db.saveBook({ book_no: 'B1', name: '' }), /Description of Manual is required/);
+  // Only Barcode No is required: the rest may be blank, and a lone "-" is saved as blank.
+  expectUserError(() => db.saveBook({ book_no: '-', name: 'x' }), /Barcode No is required/);
+  {
+    const v = db.validateImport([{ rowNumber: 1, values: { book_no: 'NEW-1', lf: '-', category: '—', name: '', location: ' - ', rack: '' }, issues: [] }]);
+    assert.strictEqual(v.ready.length, 1, 'only Barcode No is required');
+    const r = v.ready[0];
+    assert.deepStrictEqual([r.name, r.lf, r.category, r.location, r.rack], ['', '', '', '', ''], 'hyphen saved as blank');
+  }
   expectUserError(() => db.saveBook({ book_no: 'A 1', name: 'x' }), /no spaces/);
   expectUserError(() => db.saveBook({ book_no: 'A1', name: 'x', category: '12345' }), /must contain letters/);
-  expectUserError(() => db.saveBook({ book_no: 'A1', name: 'x'.repeat(201) }), /200 characters/);
-  expectUserError(() => db.saveBook({ book_no: 'A1', name: 'x', rack: 'r'.repeat(31) }), /Rack must be 30/);
+  // No length limit on Description, LF, CAT, LOC, Rack; Barcode No only has the column's 768 (most MySQL can keep unique).
+  expectUserError(() => db.saveBook({ book_no: 'A'.repeat(769), name: 'x' }), /Barcode No is too long/);
+  {
+    const { checks } = require('../renderer/rules');
+    const long = 'x'.repeat(5000);
+    assert.deepStrictEqual([checks.category(long), checks.bookNo('A'.repeat(768))], ['', '']);
+  }
   const b1 = db.saveBook({ book_no: 'OTA-001', lf: '001-06', category: 'DOR-MM', name: 'Airplane Maintenance Manual Vol-I (CG-780)', location: 'B2', rack: '6' });
   db.saveBook({ book_no: 'OTA-002', lf: '007-01', category: 'DOR-SMM', name: 'Wings of Fire', location: 'B2', rack: '1' });
   db.saveBook({ book_no: 'OTA-003', lf: '002-06', category: 'Science', name: 'Physics Vol 1' });
@@ -272,7 +284,7 @@ const expectUserError = (fn, pattern) =>
   ws.addRow([]); // blank row is skipped
   ws.addRow([3, 'imp-001', '001-08', 'DOR-MM', 'Repeated accession', 'B2', 6]);
   ws.addRow([4, 'OTA-002', '002-06', 'DOR-MM', 'Already in the library', 'B2', 6]);
-  ws.addRow([5, 'IMP-005', '002-07', 'DOR-MM', '', 'B2', 6]);
+  ws.addRow([5, 'IMP-005', '002-07', '12345', '-', 'B2', 6]); // hyphen = blank Description; CAT wrong
   ws.addRow([6, 'IMP 006', new Date(2026, 0, 6), 'DOR-MM', 'Bad accession and date LF', 'B2', 6]);
   ws.addRow([7, 12345, '', '', 'Numeric accession, optional fields empty', '', '']);
   await wb.xlsx.writeFile(xl);
@@ -286,7 +298,7 @@ const expectUserError = (fn, pattern) =>
   const errAt = (row) => pv.errors.find((e) => e.rowNumber === row).messages.join(' | ');
   assert.match(errAt(6), /repeated \(first seen in row 3\)/);
   assert.match(errAt(7), /already exists in the library/);
-  assert.match(errAt(8), /Description of Manual is required/);
+  assert.match(errAt(8), /must contain letters/);
   assert.match(errAt(9), /no spaces/);
   assert.match(errAt(9), /LF was read as a date/);
   const imp = db.importBooks(sheet.rows);
@@ -308,8 +320,9 @@ const expectUserError = (fn, pattern) =>
   const fixRow = back.rows.find((r) => r.values.book_no === 'IMP-005');
   assert.strictEqual(fixRow.values.lf, '002-07', 'values kept, blanks stay blank');
   assert.strictEqual(fixRow.values.name, '');
-  fixRow.values.name = 'Corrected description';
+  fixRow.values.category = 'DOR-MM';
   assert.strictEqual(db.importBooks([fixRow]).imported, 1);
+  assert.strictEqual(db.getBookByNumber('IMP-005').name, '', 'blank Description is fine');
   const rp = importer.rejectsPath(dir, 'books.xlsx', '2026-10-07');
   assert.ok(rp.endsWith('books_not_imported_2026-10-07.xlsx'));
   fs.writeFileSync(rp, 'x');

@@ -11,6 +11,16 @@ const TIMEOUT_MS = 30000;
 
 class AuthError extends UserError {}
 
+// The server words its messages with version 1's field names (Barcode No, Description of Manual, ...).
+// Version 2 shows some fields under other names: its build fills this list with [from, to] pairs.
+const RELABEL = [];
+const relabel = (msg) => RELABEL.reduce((s, [from, to]) => s.split(from).join(to), String(msg));
+// Applies relabel to a reply: import checks return their row problems as data ({ errors: [{ messages }] }).
+function relabelData(data) {
+  if (!RELABEL.length || !data || !Array.isArray(data.errors)) return data;
+  return { ...data, errors: data.errors.map((e) => (Array.isArray(e && e.messages) ? { ...e, messages: e.messages.map(relabel) } : e)) };
+}
+
 class RemoteDB {
   constructor(serverUrl = DEFAULT_SERVER_URL, edition = EDITION) {
     this.serverUrl = serverUrl.replace(/\/+$/, '');
@@ -36,12 +46,12 @@ class RemoteDB {
     } catch {
       throw new UserError(`The library server sent an unexpected reply (HTTP ${res.status}).`);
     }
-    if (body.ok) return body.data;
+    if (body.ok) return relabelData(body.data);
     if (body.auth) {
       this.token = null;
       throw new AuthError(body.error || 'Your session has ended. Please sign in again.');
     }
-    throw new UserError(body.error || 'The library server could not complete the request.');
+    throw new UserError(relabel(body.error || 'The library server could not complete the request.'));
   }
 }
 
@@ -55,4 +65,4 @@ function asLibrary(remote) {
   );
 }
 
-module.exports = { RemoteDB, AuthError, asLibrary, EDITION, DEFAULT_SERVER_URL };
+module.exports = { RemoteDB, AuthError, asLibrary, relabel, relabelData, EDITION, DEFAULT_SERVER_URL };
